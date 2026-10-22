@@ -17,13 +17,16 @@ import { SettingsPage } from './pages/SettingsPage';
 import { ConflictPage } from './pages/ConflictPage';
 import { RepairPage } from './pages/RepairPage';
 import { AuthPage } from './pages/AuthPage';
+import { AgentPage } from './pages/AgentPage';
 
-export type Tab = 'tree' | 'calendar' | 'stats' | 'settings';
+export type Tab = 'tree' | 'calendar' | 'agent' | 'stats' | 'settings';
 
 /** `?tab=` opens a page directly (notifications, bookmarks, home-screen links). */
 function tabFromLocation(): Tab {
   const raw = new URLSearchParams(window.location.search).get('tab');
-  if (raw === 'tree' || raw === 'calendar' || raw === 'stats' || raw === 'settings') return raw;
+  if (raw === 'tree' || raw === 'calendar' || raw === 'agent' || raw === 'stats' || raw === 'settings') {
+    return raw;
+  }
   return 'tree';
 }
 
@@ -245,6 +248,14 @@ function Shell(props: {
             tree={tree}
             display={config.display}
             calendarDays={config.calendarDays}
+          />
+        )}
+        {tab === 'agent' && (
+          <AgentPage
+            client={client}
+            config={config}
+            updateConfig={updateConfig}
+            onOpenSettings={() => setTab('settings')}
           />
         )}
         {tab === 'stats' && <StatsPage tree={tree} blocks={client.getBlocks()} />}

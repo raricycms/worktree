@@ -3,7 +3,9 @@ import type { ReactElement } from 'react';
 import { normalizeCapturePath } from '@worktree/core';
 import type { Node } from '@worktree/core';
 import type { WorktreeClient } from '@worktree/client';
+import { verifyProvider } from '@worktree/agent';
 import { ExpandSelect } from '../components/ExpandSelect';
+import { SemesterFields } from '../components/TimetableImport';
 import { LOCAL_USER, listLoggedInUsers, loadToken } from '../config';
 import type { AppConfig, FilterDisplayMode } from '../config';
 import { authRequest } from '../auth';
@@ -69,6 +71,58 @@ export function SettingsPage(props: {
       return;
     }
     onClearCache();
+  };
+
+  const [aiBaseDraft, setAiBaseDraft] = useState(config.ai.baseUrl);
+  const [aiModelDraft, setAiModelDraft] = useState(config.ai.model);
+  const [aiKeyDraft, setAiKeyDraft] = useState(config.ai.apiKey);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiStatus, setAiStatus] = useState<string | null>(null);
+  const [aiTesting, setAiTesting] = useState(false);
+
+  const applyAi = (): void => {
+    const baseUrl = aiBaseDraft.trim().replace(/\/+$/, '');
+    if (!validServerUrl(baseUrl)) {
+      setAiError(t('settings.ai.invalidUrl'));
+      return;
+    }
+    const model = aiModelDraft.trim();
+    if (model === '') {
+      setAiError(t('settings.ai.invalidModel'));
+      return;
+    }
+    setAiError(null);
+    setAiStatus(null);
+    setAiBaseDraft(baseUrl);
+    setAiModelDraft(model);
+    updateConfig({ ai: { ...config.ai, baseUrl, model, apiKey: aiKeyDraft } });
+  };
+
+  const testAi = async (): Promise<void> => {
+    const baseUrl = aiBaseDraft.trim().replace(/\/+$/, '');
+    if (!validServerUrl(baseUrl)) {
+      setAiError(t('settings.ai.invalidUrl'));
+      return;
+    }
+    if (aiModelDraft.trim() === '') {
+      setAiError(t('settings.ai.invalidModel'));
+      return;
+    }
+    if (aiKeyDraft.trim() === '') {
+      setAiError(t('settings.ai.invalidKey'));
+      return;
+    }
+    setAiTesting(true);
+    setAiError(null);
+    setAiStatus(null);
+    try {
+      const result = await verifyProvider({ baseUrl, model: aiModelDraft.trim(), apiKey: aiKeyDraft });
+      setAiStatus(t('settings.ai.connected', { model: result.model }));
+    } catch (e) {
+      setAiError(t('settings.ai.testFailed', { message: e instanceof Error ? e.message : String(e) }));
+    } finally {
+      setAiTesting(false);
+    }
   };
 
   const storedToken = config.user === LOCAL_USER ? null : loadToken(config.serverUrl, config.user);
@@ -314,6 +368,87 @@ export function SettingsPage(props: {
             </div>
             <p className="setting__hint">{t('settings.captureNote')}</p>
             {quickError !== null && <p className="form__error">{quickError}</p>}
+          </section>
+
+          <section className="card">
+            <div className="section-head">
+              <h2 className="section-title">{t('settings.ai.title')}</h2>
+            </div>
+            <p className="setting__hint">{t('settings.ai.hint')}</p>
+            <div className="stack">
+              <label className="field">
+                <span className="field__label">{t('settings.ai.baseUrl')}</span>
+                <input
+                  value={aiBaseDraft}
+                  onChange={(e) => setAiBaseDraft(e.target.value)}
+                  data-testid="settings-ai-base-url"
+                  className="input input--mono"
+                />
+              </label>
+              <div className="form__row">
+                <label className="field">
+                  <span className="field__label">{t('settings.ai.model')}</span>
+                  <input
+                    value={aiModelDraft}
+                    onChange={(e) => setAiModelDraft(e.target.value)}
+                    data-testid="settings-ai-model"
+                    className="input input--mono"
+                  />
+                </label>
+                <label className="field">
+                  <span className="field__label">{t('settings.ai.apiKey')}</span>
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    value={aiKeyDraft}
+                    onChange={(e) => setAiKeyDraft(e.target.value)}
+                    data-testid="settings-ai-key"
+                    className="input input--mono"
+                  />
+                </label>
+              </div>
+              <p className="setting__hint">{t('settings.ai.keyHint')}</p>
+              <div className="settings__actions">
+                <button
+                  type="button"
+                  onClick={applyAi}
+                  data-testid="settings-ai-apply"
+                  className="btn btn--primary btn--sm"
+                >
+                  {t('settings.ai.apply')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void testAi()}
+                  disabled={aiTesting}
+                  data-testid="settings-ai-test"
+                  className="btn btn--sm"
+                >
+                  {aiTesting ? t('settings.ai.testing') : t('settings.ai.test')}
+                </button>
+              </div>
+              {aiStatus !== null && (
+                <p className="notice notice--success" role="status" data-testid="settings-ai-status">
+                  {aiStatus}
+                </p>
+              )}
+              {aiError !== null && (
+                <p className="form__error" data-testid="settings-ai-error">
+                  {aiError}
+                </p>
+              )}
+            </div>
+          </section>
+
+          <section className="card">
+            <div className="section-head">
+              <h2 className="section-title">{t('agent.semester.title')}</h2>
+            </div>
+            <SemesterFields
+              semester={config.ai.semester}
+              onChange={(semester) => updateConfig({ ai: { ...config.ai, semester } })}
+              testIdPrefix="settings-semester"
+            />
           </section>
 
           <section className="card">

@@ -1,11 +1,43 @@
-import { DEFAULT_CAPTURE_PATH, USER_RE, isRecord, normalizeCapturePath } from '@worktree/core';
-import type { NodeFilter } from '@worktree/core';
+import {
+  DEFAULT_CAPTURE_PATH,
+  USER_RE,
+  daysFromCivil,
+  isRecord,
+  isValidCivilDate,
+  normalizeCapturePath,
+  weekdayFromDays,
+} from '@worktree/core';
+import type { CivilDate, NodeFilter } from '@worktree/core';
 import { DEFAULT_AUTO_REMINDER_PCT, clampAutoReminderPct } from '@worktree/client';
+import type { Semester } from '@worktree/agent';
 import { isThemePref } from './theme';
 import type { ThemePref } from './theme';
 
 export const DEFAULT_SERVER = 'https://worktree.fuyuzheju.cn';
 export const LOCAL_USER = 'local';
+
+export const DEFAULT_AI_BASE_URL = 'https://api.deepseek.com';
+export const DEFAULT_AI_MODEL = 'deepseek-flash';
+const MAX_SEMESTER_WEEKS = 60;
+
+/**
+ * The browser-side model endpoint. The key is device-local: it is never sent
+ * to the worktree server, only to `baseUrl` (see docs/agent.md).
+ */
+export interface AiConfig {
+  baseUrl: string;
+  model: string;
+  apiKey: string;
+  /** Teaching calendar for the timetable import; null until configured. */
+  semester: Semester | null;
+}
+
+export const DEFAULT_AI: AiConfig = {
+  baseUrl: DEFAULT_AI_BASE_URL,
+  model: DEFAULT_AI_MODEL,
+  apiKey: '',
+  semester: null,
+};
 
 /** How an active filter renders: hide non-matching nodes, or highlight matches. */
 export type FilterDisplayMode = 'hide' | 'highlight';
@@ -37,6 +69,8 @@ export interface AppConfig {
   quickAddPath: string;
   /** Light, dark, or follow the OS. */
   theme: ThemePref;
+  /** Chat endpoint and teaching calendar for the scheduling agent. */
+  ai: AiConfig;
 }
 
 const CONFIG_KEY = 'worktree.config';
@@ -51,7 +85,58 @@ const defaultConfig: AppConfig = {
   autoReminder: { enabled: true, pct: DEFAULT_AUTO_REMINDER_PCT },
   quickAddPath: DEFAULT_CAPTURE_PATH,
   theme: 'system',
+  ai: DEFAULT_AI,
 };
+
+/** A fresh default config: callers may hold onto the result without sharing state. */
+function defaultConfigCopy(): AppConfig {
+  return { ...defaultConfig, ai: { ...DEFAULT_AI } };
+}
+
+function validHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/** A stored semester is only usable when its anchor is a real Monday. */
+function parseSemester(raw: unknown): Semester | null {
+  if (!isRecord(raw) || !isRecord(raw.firstMonday)) return null;
+  const { year, month, day } = raw.firstMonday;
+  if (typeof year !== 'number' || typeof month !== 'number' || typeof day !== 'number') return null;
+  const firstMonday: CivilDate = { year, month, day };
+  if (!isValidCivilDate(firstMonday)) return null;
+  if (weekdayFromDays(daysFromCivil(year, month, day)) !== 1) return null;
+  const totalWeeks = raw.totalWeeks;
+  if (
+    typeof totalWeeks !== 'number' ||
+    !Number.isInteger(totalWeeks) ||
+    totalWeeks < 1 ||
+    totalWeeks > MAX_SEMESTER_WEEKS
+  ) {
+    return null;
+  }
+  return { firstMonday, totalWeeks };
+}
+
+function parseAi(raw: unknown): AiConfig {
+  if (!isRecord(raw)) return { ...DEFAULT_AI };
+  const baseUrl =
+    typeof raw.baseUrl === 'string' && validHttpUrl(raw.baseUrl.trim())
+      ? raw.baseUrl.trim()
+      : DEFAULT_AI_BASE_URL;
+  const model =
+    typeof raw.model === 'string' && raw.model.trim() !== '' ? raw.model.trim() : DEFAULT_AI_MODEL;
+  return {
+    baseUrl,
+    model,
+    apiKey: typeof raw.apiKey === 'string' ? raw.apiKey : '',
+    semester: parseSemester(raw.semester),
+  };
+}
 
 function parseAutoReminder(raw: unknown): AutoReminderSetting {
   if (!isRecord(raw)) return defaultConfig.autoReminder;
@@ -84,9 +169,9 @@ function parseFilter(raw: unknown): NodeFilter {
 export function loadConfig(): AppConfig {
   try {
     const raw = localStorage.getItem(CONFIG_KEY);
-    if (!raw) return defaultConfig;
+    if (!raw) return defaultConfigCopy();
     const parsed: unknown = JSON.parse(raw);
-    if (!isRecord(parsed)) return defaultConfig;
+    if (!isRecord(parsed)) return defaultConfigCopy();
     const display = isRecord(parsed.display) ? parsed.display : {};
     return {
       serverUrl: typeof parsed.serverUrl === 'string' ? parsed.serverUrl : defaultConfig.serverUrl,
@@ -106,9 +191,10 @@ export function loadConfig(): AppConfig {
       autoReminder: parseAutoReminder(parsed.autoReminder),
       quickAddPath: parseCapturePath(parsed.quickAddPath),
       theme: isThemePref(parsed.theme) ? parsed.theme : defaultConfig.theme,
+      ai: parseAi(parsed.ai),
     };
   } catch {
-    return defaultConfig;
+    return defaultConfigCopy();
   }
 }
 

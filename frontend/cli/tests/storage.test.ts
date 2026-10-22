@@ -170,7 +170,9 @@ describe('token storage', () => {
     });
   });
 
-  it('writes token files with mode 0600', () => {
+  // POSIX file modes do not exist on Windows, so the assertion can only hold
+  // where chmod is meaningful (the 0600 write itself is still exercised).
+  it.skipIf(process.platform === 'win32')('writes token files with mode 0600', () => {
     withHome(() => {
       writeToken('http://localhost:3000', 'alice', { token: 'tok-1', tokenId: 1 });
       const file = tokenPath('http://localhost:3000', 'alice');

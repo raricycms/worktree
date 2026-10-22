@@ -15,6 +15,7 @@ import type {
   RepairDrop,
   RuleFreq,
   Timestamp,
+  WorktreeState,
 } from '@worktree/core';
 import { ApiError, ServerAPI } from './api';
 import { DEFAULT_AUTO_REMINDER_PCT, autoReminderDeadline } from './autoReminder';
@@ -271,6 +272,42 @@ export class WorktreeClient {
     this.store.applyLocal(stamped);
     this.emit();
     if (this.online) void this.resync();
+  }
+
+  /**
+   * A clone of the rendered state (confirmed history + pending ops) for
+   * dry-run planning. Planners validate and rehearse ops on it without
+   * touching the live state (the same pattern as `planCapture`).
+   */
+  planningState(): WorktreeState {
+    this.assertNotBroken();
+    return this.store.planningState();
+  }
+
+  /**
+   * Applies a batch of already-validated ops with one rebuild and one resync.
+   * Every op still becomes its own pending history entry, so per-op undo,
+   * conflict detection and server validation are unchanged — the batch only
+   * avoids rebuilding the derived state N times (timetable import, agent
+   * turns). An empty batch is a no-op.
+   */
+  applyMany(ops: Operation[]): void {
+    if (ops.length === 0) return;
+    this.assertNotBroken();
+    // One timestamp for the whole batch: replay derives createdAt from it, and
+    // a stable value keeps the derived state identical across devices.
+    const timestamp = Date.now();
+    const stamped = ops.map((op): Operation => ({ ...op, timestamp }));
+    // Validate the whole batch on a clone first: a rejected op must not leave
+    // the first half of an import applied (callers batch dozens of ops).
+    const probe = this.store.planningState();
+    for (const op of stamped) probe.apply(op);
+    for (const op of stamped) {
+      if (this.local) this.store.applyLocalConfirmed(op);
+      else this.store.applyLocal(op);
+    }
+    this.emit();
+    if (!this.local && this.online) void this.resync();
   }
 
   // Semantic operations: the kernel generates ids and default weights so

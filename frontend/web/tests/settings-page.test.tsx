@@ -22,6 +22,7 @@ function makeConfig(calendarDays: number): AppConfig {
     autoReminder: { enabled: true, pct: 15 },
     quickAddPath: '/tmp',
     theme: 'system',
+    ai: { baseUrl: 'https://api.deepseek.com', model: 'deepseek-flash', apiKey: '', semester: null },
   };
 }
 
@@ -142,5 +143,70 @@ describe('SettingsPage auto reminder', () => {
     expect(updateConfig).toHaveBeenCalledWith({ autoReminder: { enabled: true, pct: 99 } });
     fireEvent.change(screen.getByTestId('settings-auto-reminder-pct'), { target: { value: '0' } });
     expect(updateConfig).toHaveBeenCalledWith({ autoReminder: { enabled: true, pct: 1 } });
+  });
+});
+
+describe('SettingsPage AI assistant', () => {
+  it('saves the base URL, model and key', () => {
+    const { updateConfig } = renderSettings(7);
+    fireEvent.change(screen.getByTestId('settings-ai-base-url'), {
+      target: { value: 'https://api.deepseek.com/v1/' },
+    });
+    fireEvent.change(screen.getByTestId('settings-ai-model'), { target: { value: 'deepseek-chat' } });
+    fireEvent.change(screen.getByTestId('settings-ai-key'), { target: { value: 'sk-local' } });
+    fireEvent.click(screen.getByTestId('settings-ai-apply'));
+    expect(updateConfig).toHaveBeenCalledWith({
+      ai: {
+        baseUrl: 'https://api.deepseek.com/v1',
+        model: 'deepseek-chat',
+        apiKey: 'sk-local',
+        semester: null,
+      },
+    });
+  });
+
+  it('rejects a base URL that is not http(s)', () => {
+    const { updateConfig } = renderSettings(7);
+    fireEvent.change(screen.getByTestId('settings-ai-base-url'), { target: { value: 'api.deepseek.com' } });
+    fireEvent.click(screen.getByTestId('settings-ai-apply'));
+    expect(updateConfig).not.toHaveBeenCalled();
+    expect(screen.getByTestId('settings-ai-error').textContent).toContain('valid http://');
+  });
+
+  it('rejects an empty model name', () => {
+    const { updateConfig } = renderSettings(7);
+    fireEvent.change(screen.getByTestId('settings-ai-model'), { target: { value: '   ' } });
+    fireEvent.click(screen.getByTestId('settings-ai-apply'));
+    expect(updateConfig).not.toHaveBeenCalled();
+    expect(screen.getByTestId('settings-ai-error').textContent).toContain('Enter a model name');
+  });
+});
+
+describe('SettingsPage semester', () => {
+  it('saves a Monday anchor and the teaching week count', () => {
+    const { updateConfig } = renderSettings(7);
+    fireEvent.change(screen.getByTestId('settings-semester-first-monday'), {
+      target: { value: '2026-10-19' },
+    });
+    fireEvent.change(screen.getByTestId('settings-semester-weeks'), { target: { value: '16' } });
+    fireEvent.click(screen.getByTestId('settings-semester-save'));
+    expect(updateConfig).toHaveBeenCalledWith({
+      ai: {
+        baseUrl: 'https://api.deepseek.com',
+        model: 'deepseek-flash',
+        apiKey: '',
+        semester: { firstMonday: { year: 2026, month: 10, day: 19 }, totalWeeks: 16 },
+      },
+    });
+  });
+
+  it('rejects a non-Monday anchor', () => {
+    const { updateConfig } = renderSettings(7);
+    fireEvent.change(screen.getByTestId('settings-semester-first-monday'), {
+      target: { value: '2026-10-20' },
+    });
+    fireEvent.click(screen.getByTestId('settings-semester-save'));
+    expect(updateConfig).not.toHaveBeenCalled();
+    expect(screen.getByTestId('settings-semester-error').textContent).toContain('must be a Monday');
   });
 });

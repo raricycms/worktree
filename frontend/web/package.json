@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@worktree/agent": "*",
     "@worktree/client": "*",
     "@worktree/core": "*",
     "react": "^19.2.0",

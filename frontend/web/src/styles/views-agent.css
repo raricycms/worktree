@@ -1,0 +1,272 @@
+/* The assistant page: conversation, tool-step disclosure and timetable import.
+   Shared visual language lives in components.css; this file only adds the
+   page's own layout, using the tokens for every decision. */
+@layer components {
+  /* ---------- conversation ---------- */
+  .agent-chat {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .agent-log {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-sm);
+    max-height: 52vh;
+    overflow-y: auto;
+    padding: 4px 2px;
+  }
+
+  .agent-msg {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-xs);
+    max-width: 86%;
+    padding: 12px 16px;
+    border-radius: var(--r-field);
+    background: var(--inset);
+  }
+
+  .agent-msg--user {
+    align-self: flex-end;
+    background: var(--brand-tint);
+  }
+
+  .agent-msg__text {
+    margin: 0;
+    color: var(--ink);
+    font-size: var(--fs-body);
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .agent-thinking {
+    margin: 0;
+  }
+
+  /* ---------- tool steps: a count that unfolds into chips ---------- */
+  .agent-steps {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+  }
+
+  .agent-steps__toggle {
+    color: var(--ink-2);
+  }
+
+  .agent-steps__panel {
+    display: grid;
+    grid-template-rows: 0fr;
+    visibility: hidden;
+    transition:
+      grid-template-rows var(--dur-expand) var(--ease-out),
+      visibility 0s var(--dur-expand);
+  }
+
+  .agent-steps__list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--gap-xs);
+    min-height: 0;
+    margin: 0;
+    padding: 8px 0 0;
+    overflow: hidden;
+    list-style: none;
+    opacity: 0;
+    transition: opacity var(--dur-fade) var(--ease-standard);
+  }
+
+  .agent-steps.is-open .agent-steps__panel {
+    grid-template-rows: 1fr;
+    visibility: visible;
+    transition-delay: 0s;
+  }
+
+  .agent-steps.is-open .agent-steps__list {
+    opacity: 1;
+    transition-delay: 55ms;
+  }
+
+  .agent-steps__item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+  }
+
+  .agent-steps__item[data-ok='false'] .pill {
+    background: var(--danger-tint);
+    color: var(--danger);
+  }
+
+  .agent-steps__summary {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  /* ---------- composer and quick prompts ---------- */
+  .agent-quick {
+    margin-top: var(--gap-sm);
+  }
+
+  .agent-composer {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-xs);
+    margin-top: var(--gap-sm);
+  }
+
+  .agent-composer__input {
+    min-height: 64px;
+  }
+
+  .agent-composer__actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--gap-xs);
+  }
+
+  /* ---------- semester fields (Settings and import share them) ---------- */
+  .agent-semester__row {
+    align-items: flex-end;
+  }
+
+  .agent-semester__date {
+    max-width: 200px;
+  }
+
+  /* ---------- timetable import ---------- */
+  .agent-import {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-sm);
+    min-width: 0;
+  }
+
+  .agent-import__form {
+    margin-top: var(--gap-sm);
+  }
+
+  .agent-import__file {
+    padding: 8px 12px;
+    font-size: var(--fs-sm);
+  }
+
+  .agent-import__picked {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--gap-sm);
+    min-width: 0;
+  }
+
+  .agent-import__preview {
+    max-width: 100%;
+    max-height: 160px;
+    border-radius: var(--r-sub);
+    background: var(--inset);
+    object-fit: contain;
+  }
+
+  .agent-import__preview-wrap {
+    margin-top: var(--gap-lg);
+  }
+
+  .agent-import__list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 4px 0 0;
+    padding-left: 18px;
+  }
+
+  /* The preview is a data table: it scrolls inside its own card instead of
+     squeezing six editable columns into a phone width. */
+  .agent-table-wrap {
+    margin-top: var(--gap-sm);
+    overflow-x: auto;
+    border-radius: var(--r-field);
+    background: var(--inset);
+  }
+
+  .agent-table {
+    width: 100%;
+    min-width: 940px;
+    border-collapse: collapse;
+    font-size: var(--fs-sm);
+  }
+
+  .agent-table th {
+    padding: 10px 8px 4px;
+    color: var(--ink-2);
+    font-size: var(--fs-xs);
+    font-weight: 500;
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  .agent-table td {
+    padding: 4px 6px;
+    vertical-align: top;
+  }
+
+  .agent-table .select {
+    min-width: 96px;
+  }
+
+  .agent-table__time {
+    min-width: 112px;
+  }
+
+  .agent-table__weeks {
+    min-width: 96px;
+  }
+
+  .agent-table__dates {
+    color: var(--ink-2);
+    font-size: var(--fs-xs);
+    white-space: nowrap;
+    padding-top: 12px;
+  }
+
+  .agent-table__conflicts {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    margin: 0;
+    padding: 4px 0;
+    list-style: none;
+  }
+
+  .pill--conflict {
+    height: auto;
+    min-height: 26px;
+    padding: 4px 10px;
+    background: var(--danger-tint);
+    color: var(--danger);
+    white-space: normal;
+    text-align: left;
+  }
+
+  /* The confirmation row closes the preview and must not disappear under the
+     table's horizontal scroll on a narrow screen. */
+  .agent-import__preview-wrap > .form__actions {
+    margin-top: var(--gap-sm);
+  }
+
+  @media (max-width: 767px) {
+    .agent-msg {
+      max-width: 100%;
+    }
+
+    .agent-log {
+      max-height: 46vh;
+    }
+  }
+}

@@ -5,6 +5,7 @@
     "core",
     "server",
     "client",
+    "agent",
     "frontend/cli",
     "frontend/web"
   ],
