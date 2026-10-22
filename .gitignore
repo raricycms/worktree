@@ -45,5 +45,6 @@ target/
 
 # --- local deployment tooling (machine-specific, not part of the project) ---
 /deploy.ps1
+/deploy.cmd
 /deploy.log
 
