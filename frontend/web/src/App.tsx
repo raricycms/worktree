@@ -6,6 +6,7 @@ import { useWorktreeClient } from './hooks/useWorktreeClient';
 import { I18nProvider, useI18n } from './i18n';
 import { FilterProvider } from './filter-context';
 import { captureParamText, stripCaptureParams } from './capture-params';
+import { watchTheme } from './theme';
 import { QuickCapture } from './components/QuickCapture';
 import { StatusBar } from './components/StatusBar';
 import { Tabs } from './components/Tabs';
@@ -19,9 +20,16 @@ import { AuthPage } from './pages/AuthPage';
 
 export type Tab = 'tree' | 'calendar' | 'stats' | 'settings';
 
+/** `?tab=` opens a page directly (notifications, bookmarks, home-screen links). */
+function tabFromLocation(): Tab {
+  const raw = new URLSearchParams(window.location.search).get('tab');
+  if (raw === 'tree' || raw === 'calendar' || raw === 'stats' || raw === 'settings') return raw;
+  return 'tree';
+}
+
 export default function App() {
   const [config, setConfig] = useState<AppConfig>(loadConfig);
-  const [tab, setTab] = useState<Tab>('tree');
+  const [tab, setTab] = useState<Tab>(tabFromLocation);
   const [clientEpoch, setClientEpoch] = useState(0);
   // Explicitly requested login screen ("log in another user"); the only way
   // to reach the auth page while a valid token exists.
@@ -35,6 +43,8 @@ export default function App() {
     token,
     epoch: clientEpoch,
   });
+
+  useEffect(() => watchTheme(config.theme), [config.theme]);
 
   const updateConfig = (patch: Partial<AppConfig>): void => {
     const next = { ...config, ...patch };
@@ -190,31 +200,34 @@ function Shell(props: {
   }, [setTab]);
 
   return (
-    <div className="flex flex-col min-h-screen max-h-screen bg-gray-100 text-gray-900">
-      <header className="border-b border-gray-300 bg-white px-4 py-3 md:px-6">
-        <div className="flex flex-wrap max-md:flex-col items-start justify-between gap-2">
-          <h1 className="text-xl font-bold tracking-wide">{t('app.title')}</h1>
-          <StatusBar
-            online={online}
-            pendingCount={pendingCount}
-            client={client}
-            authFailed={authFailed}
-            onRelogin={onLogout}
-          />
+    <div className="app">
+      <a className="skip-link" href="#main-content">
+        {t('app.skipToContent')}
+      </a>
+      <header className="topbar">
+        <div className="topbar__inner">
+          <span className="brand">{t('app.title')}</span>
+          <Tabs active={tab} onChange={setTab} />
+          <div className="topbar__actions">
+            <StatusBar
+              online={online}
+              pendingCount={pendingCount}
+              client={client}
+              authFailed={authFailed}
+              onRelogin={onLogout}
+            />
+          </div>
         </div>
-        <Tabs active={tab} onChange={setTab} />
       </header>
       {storageFailure !== null && (
-        <div
-          data-testid="storage-failure"
-          role="alert"
-          className="border-b border-red-300 bg-red-50 px-4 py-2 text-sm text-red-800 md:px-6"
-        >
-          <span className="font-medium">{t('status.storageFailed')}</span>{' '}
-          <span>{storageFailure.message}</span>
+        <div className="app__banner">
+          <div data-testid="storage-failure" role="alert" className="notice notice--danger">
+            <span className="notice__title">{t('status.storageFailed')}</span>{' '}
+            <span>{storageFailure.message}</span>
+          </div>
         </div>
       )}
-      <main className="py-4 md:px-6 flex-1 flex w-full min-h-0 overflow-y-auto">
+      <main className="app__main" id="main-content">
         {tab === 'tree' && (
           <TreePage
             tree={tree}
@@ -283,35 +296,33 @@ function ErrorScreenBody({ message }: { message: string }) {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-100 px-4">
-      <div className="w-full max-w-96 rounded border border-red-300 bg-red-50 px-6 py-4 text-red-800">
-        <p className="font-semibold">{t('recover.title')}</p>
-        <p className="mt-1 text-sm">{message}</p>
-        <div className="mt-3 flex flex-col gap-2">
-          <label className="text-sm">
-            {t('recover.username')}
+    <div className="auth">
+      <div className="auth__panel">
+        <div className="notice notice--danger">
+          <p className="notice__title">{t('recover.title')}</p>
+          <p className="tiny">{message}</p>
+        </div>
+        <div className="form">
+          <label className="field">
+            <span className="field__label">{t('recover.username')}</span>
             <input
               value={user}
               onChange={(e) => setUser(e.target.value)}
               placeholder={loadConfig().user}
-              className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-gray-900"
+              className="input"
             />
           </label>
-          <label className="text-sm">
-            {t('recover.serverUrl')}
+          <label className="field">
+            <span className="field__label">{t('recover.serverUrl')}</span>
             <input
               value={serverUrl}
               onChange={(e) => setServerUrl(e.target.value)}
               placeholder={loadConfig().serverUrl}
-              className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-gray-900"
+              className="input"
             />
           </label>
         </div>
-        <button
-          type="button"
-          onClick={recover}
-          className="mt-3 rounded bg-red-700 px-3 py-1.5 text-sm text-white hover:bg-red-800"
-        >
+        <button type="button" onClick={recover} className="btn btn--primary btn--block">
           {t('recover.apply')}
         </button>
       </div>

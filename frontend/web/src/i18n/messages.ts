@@ -11,6 +11,7 @@ export const messages: Record<string, StringMap> = {
   en: {
     app: {
       title: 'WORKTREE',
+      skipToContent: 'Skip to content',
     },
     /** Sunday-first, indexed by `Date#getDay()`. */
     weekday: {
@@ -43,6 +44,7 @@ export const messages: Record<string, StringMap> = {
     status: {
       online: 'online',
       offline: 'offline',
+      local: 'local only',
       pending: '{n} pending',
       reconnect: 'Reconnect',
       reconnecting: 'Reconnecting…',
@@ -294,6 +296,10 @@ export const messages: Record<string, StringMap> = {
       clipboardFailed: 'Could not read the clipboard:',
     },
     settings: {
+      theme: 'Theme',
+      themeSystem: 'System',
+      themeLight: 'Light',
+      themeDark: 'Dark',
       account: 'Account',
       loggedIn: 'Logged in as "{user}" — device: {label}',
       noLabel: 'unnamed device',
@@ -315,8 +321,6 @@ export const messages: Record<string, StringMap> = {
       showWeight: 'Show weights',
       showReminders: 'Show reminder summaries',
       filterMode: 'Filter display mode',
-      filterHide: 'Hide non-matching (default)',
-      filterHighlight: 'Highlight matching',
       language: 'Language',
       calendar: 'Calendar',
       calendarDays: 'Days shown in calendar (3–9)',
@@ -372,6 +376,7 @@ export const messages: Record<string, StringMap> = {
   zh: {
     app: {
       title: 'WORKTREE',
+      skipToContent: '跳到正文',
     },
     weekday: {
       sun: '周日',
@@ -402,6 +407,7 @@ export const messages: Record<string, StringMap> = {
     status: {
       online: '在线',
       offline: '离线',
+      local: '仅本地',
       pending: '{n} 待同步',
       reconnect: '重新连接',
       reconnecting: '正在重连…',
@@ -650,6 +656,10 @@ export const messages: Record<string, StringMap> = {
       clipboardFailed: '无法读取剪贴板：',
     },
     settings: {
+      theme: '主题',
+      themeSystem: '跟随系统',
+      themeLight: '浅色',
+      themeDark: '深色',
       account: '账户',
       loggedIn: '已登录为“{user}” —— 设备：{label}',
       noLabel: '未命名设备',
@@ -671,8 +681,6 @@ export const messages: Record<string, StringMap> = {
       showWeight: '显示权重',
       showReminders: '显示提醒摘要',
       filterMode: '筛选显示方式',
-      filterHide: '隐藏不匹配项（默认）',
-      filterHighlight: '高亮匹配项',
       language: '语言',
       calendar: '日历',
       calendarDays: '日历显示天数（3–9）',

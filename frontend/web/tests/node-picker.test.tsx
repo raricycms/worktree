@@ -49,6 +49,19 @@ describe('NodePicker', () => {
     expect(screen.getByText(/beta/)).toBeInTheDocument();
   });
 
+  it('keeps the filter panel in its own row above the tree', () => {
+    renderPicker(null);
+    const filters = screen.getByTestId('filter-bar');
+    const picker = screen.getByTestId('node-picker');
+    expect(picker.contains(filters)).toBe(true);
+    // The panel needs the dialog's full width, so it no longer shares the head row.
+    expect(filters.closest('.modal__head')).toBeNull();
+    expect(filters.parentElement?.nextElementSibling?.contains(screen.getByTestId('tree-view'))).toBe(true);
+    const panel = screen.getByTestId('filter-panel');
+    expect(panel.getAttribute('aria-hidden')).toBe('true');
+    expect(panel.hasAttribute('inert')).toBe(true);
+  });
+
   it('picks a node and closes on click', () => {
     const { onPick, onClose } = renderPicker(null);
     fireEvent.click(screen.getByRole('button', { name: /alpha/ }));
@@ -81,10 +94,12 @@ describe('NodePicker', () => {
     expect(screen.getByText('No nodes match the filter.')).toBeTruthy();
   });
 
-  it('keeps the whole tree in highlight mode and outlines matches', () => {
+  it('keeps the whole tree in highlight mode and marks matches', () => {
     renderPicker(null, { filter: { keyword: 'alpha' }, mode: 'highlight' });
-    expect(screen.getByRole('button', { name: /alpha/ })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /beta/ })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /alpha/ }).className).toContain('outline-blue-400');
+    const alpha = screen.getByRole('button', { name: /alpha/ });
+    const beta = screen.getByRole('button', { name: /beta/ });
+    expect(beta).toBeTruthy();
+    expect(alpha.getAttribute('data-match')).toBe('true');
+    expect(beta.getAttribute('data-match')).not.toBe('true');
   });
 });

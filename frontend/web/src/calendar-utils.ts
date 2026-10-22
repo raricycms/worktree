@@ -9,18 +9,20 @@ export const MIN_BAR_PX = 14;
 /** Left gutter holding the hour labels. */
 export const HOUR_GUTTER_PX = 44;
 
-/** Built-in bar colors; dark enough for white text. */
+/**
+ * Category hues for bars. They only separate parallel items and carry no
+ * meaning of their own; white text stays readable on all of them. The values
+ * are theme tokens, so both themes keep them identical (content identity).
+ */
 export const BLOCK_COLORS = [
-  '#2563eb', // blue
-  '#0d9488', // teal
-  '#7c3aed', // violet
-  '#db2777', // pink
-  '#ea580c', // orange
-  '#16a34a', // green
-  '#0891b2', // cyan
-  '#e11d48', // rose
-  '#ca8a04', // yellow
-  '#4f46e5', // indigo
+  'var(--cat-1)',
+  'var(--cat-2)',
+  'var(--cat-3)',
+  'var(--cat-4)',
+  'var(--cat-5)',
+  'var(--cat-6)',
+  'var(--cat-7)',
+  'var(--cat-8)',
 ] as const;
 
 /** FNV-1a 32-bit; a UUID's hex chars hash to an even spread over the palette. */

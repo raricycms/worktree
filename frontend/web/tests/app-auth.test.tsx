@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import App from '../src/App';
 
 class FakeWebSocket {
@@ -105,22 +105,28 @@ describe('App auth gate', () => {
     expect(FakeWebSocket.instances[0]!.url).toContain('token=tok-9');
   });
 
-  it('the settings dropdown lists logged-in users and switches without the auth screen', () => {
+  it('the settings user expander lists logged-in users and switches without the auth screen', () => {
     localStorage.setItem('worktree.config', JSON.stringify(configFor('alice')));
     localStorage.setItem('worktree.token.localhost_3000.alice', JSON.stringify({ token: 'tok-a', tokenId: 1 }));
     localStorage.setItem('worktree.token.localhost_3000.bob', JSON.stringify({ token: 'tok-b', tokenId: 2 }));
     render(<App />);
     fireEvent.click(screen.getByText('Settings'));
 
-    const select = screen.getByTestId<HTMLSelectElement>('settings-user-select');
-    expect(select.value).toBe('alice');
-    const options = [...select.options].map((o) => o.value);
-    expect(options).toEqual(['local', 'alice', 'bob']);
+    const toggle = screen.getByTestId('settings-user-select');
+    expect(toggle.textContent).toBe('alice');
+    fireEvent.click(toggle);
+    const list = within(screen.getByRole('listbox', { name: 'User' }));
+    const options = list.getAllByRole('option').map((option) => option.getAttribute('data-testid'));
+    expect(options).toEqual([
+      'settings-user-select-option-local',
+      'settings-user-select-option-alice',
+      'settings-user-select-option-bob',
+    ]);
 
-    fireEvent.change(select, { target: { value: 'bob' } });
+    fireEvent.click(screen.getByTestId('settings-user-select-option-bob'));
     expect(screen.queryByTestId('auth-submit')).toBeNull();
     expect(JSON.parse(localStorage.getItem('worktree.config')!).user).toBe('bob');
-    expect(select.value).toBe('bob');
+    expect(screen.getByTestId('settings-user-select').textContent).toBe('bob');
   });
 
   it('only the "log in another user" button opens the auth screen while logged in', () => {

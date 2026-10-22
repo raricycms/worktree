@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import type { NodeFilter } from '@worktree/core';
 import { hasActiveFilter } from '@worktree/core';
 import type { FilterDisplayMode } from '../config';
 import { useI18n } from '../i18n';
 import { epochToLocalInput, localInputToEpoch } from '../time';
-import { ChevronDownIcon, ChevronUpIcon, FilterIcon } from './icons';
+import { ChevronDownIcon, FilterIcon } from './icons';
 
 export interface FilterBarProps {
   filter: NodeFilter;
@@ -13,12 +13,68 @@ export interface FilterBarProps {
   onModeChange: (mode: FilterDisplayMode) => void;
 }
 
-/** A floating button with an absolutely-positioned dropdown — takes no layout space. */
+/** The three completion states, in slider order. `undefined` is "any". */
+const STATUS_OPTIONS: { value: boolean | undefined; labelKey: string }[] = [
+  { value: undefined, labelKey: 'filter.statusAll' },
+  { value: false, labelKey: 'filter.statusUncompleted' },
+  { value: true, labelKey: 'filter.statusCompleted' },
+];
+
+const MODE_OPTIONS: { value: FilterDisplayMode; labelKey: string }[] = [
+  { value: 'hide', labelKey: 'filter.hide' },
+  { value: 'highlight', labelKey: 'filter.highlight' },
+];
+
+function Segmented(props: {
+  labelId: string;
+  testId: string;
+  activeIndex: number;
+  options: { label: string }[];
+  onSelect: (index: number) => void;
+}) {
+  const { labelId, testId, activeIndex, options, onSelect } = props;
+  return (
+    <div
+      className="segmented"
+      data-count={options.length}
+      data-active={activeIndex}
+      role="group"
+      aria-labelledby={labelId}
+      data-testid={testId}
+    >
+      <span className="segmented__thumb" aria-hidden="true" />
+      {options.map((option, index) => (
+        <button
+          key={option.label}
+          type="button"
+          className="segmented__item"
+          aria-pressed={index === activeIndex}
+          onClick={() => onSelect(index)}
+          data-testid={`${testId}-${index}`}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * A filter trigger whose panel expands in the page flow below it instead of
+ * over the page: it can never overflow the viewport or cover a row. The panel
+ * stays mounted so the collapse can animate; while closed it is `inert`.
+ */
 export function FilterBar(props: FilterBarProps) {
   const { t } = useI18n();
   const { filter, mode, onFilterChange, onModeChange } = props;
   const [open, setOpen] = useState(false);
+  const panelId = useId();
+  const statusLabelId = useId();
+  const modeLabelId = useId();
   const active = hasActiveFilter(filter);
+  const activeCount = Object.values(filter).filter((value) => value !== undefined).length;
+  const statusIndex = STATUS_OPTIONS.findIndex((option) => option.value === filter.status);
+  const modeIndex = MODE_OPTIONS.findIndex((option) => option.value === mode);
 
   const set = (patch: Partial<NodeFilter>): void => {
     onFilterChange({ ...filter, ...patch });
@@ -32,49 +88,42 @@ export function FilterBar(props: FilterBarProps) {
   const clear = (): void => onFilterChange({});
 
   return (
-    <div className="relative" data-testid="filter-bar">
+    <div className="tree-panel__filters" data-testid="filter-bar">
       <button
         type="button"
         onClick={() => setOpen(!open)}
         data-testid="filter-toggle"
-        className={`inline-flex items-center gap-1 rounded border px-2 py-1 font-mono text-xs hover:bg-gray-50 ${
-          active ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-gray-300 bg-white'
-        }`}
+        data-active={active ? 'true' : 'false'}
+        aria-expanded={open}
+        aria-controls={panelId}
+        className={active ? 'btn btn--sm pill--brand' : 'btn btn--sm'}
       >
-        <FilterIcon className="h-3.5 w-3.5" />
+        <FilterIcon className="icon icon--sm" />
         {t('filter.title')}
-        {open ? <ChevronUpIcon className="h-3 w-3" /> : <ChevronDownIcon className="h-3 w-3" />}
+        {active && <span className="pill mono">{activeCount}</span>}
+        <ChevronDownIcon className="filter-bar__chevron icon icon--sm" />
       </button>
-      {open && (
-        <div className="absolute right-0 top-full z-10 mt-1 w-72 rounded border border-gray-300 bg-white p-3 font-mono text-xs shadow-lg">
-          <div className="flex flex-col gap-2">
-            <label className="flex flex-col gap-0.5">
-              <span className="text-gray-600">{t('filter.keyword')}</span>
+      <div
+        id={panelId}
+        className={open ? 'filter-panel is-open' : 'filter-panel'}
+        data-testid="filter-panel"
+        aria-hidden={!open}
+        inert={!open}
+      >
+        <div className="filter-panel__clip">
+          <div className="filter-panel__content">
+            <label className="field filter-panel__field--wide">
+              <span className="field__label">{t('filter.keyword')}</span>
               <input
                 type="text"
                 value={filter.keyword ?? ''}
                 onChange={(e) => set({ keyword: e.target.value === '' ? undefined : e.target.value })}
                 placeholder={t('filter.keywordPlaceholder')}
                 data-testid="filter-keyword"
-                className="w-full rounded border border-gray-300 px-2 py-1"
+                className="input input--compact"
               />
             </label>
-            <label className="flex flex-col gap-0.5">
-              <span className="text-gray-600">{t('filter.status')}</span>
-              <select
-                value={filter.status === undefined ? '' : String(filter.status)}
-                onChange={(e) =>
-                  set({ status: e.target.value === '' ? undefined : e.target.value === 'true' })
-                }
-                data-testid="filter-status"
-                className="w-full rounded border border-gray-300 px-1 py-0.5"
-              >
-                <option value="">{t('filter.statusAll')}</option>
-                <option value="false">{t('filter.statusUncompleted')}</option>
-                <option value="true">{t('filter.statusCompleted')}</option>
-              </select>
-            </label>
-            <label className="flex items-center gap-1.5">
+            <label className="check">
               <input
                 type="checkbox"
                 checked={filter.overdue === true}
@@ -83,64 +132,73 @@ export function FilterBar(props: FilterBarProps) {
               />
               {t('filter.overdue')}
             </label>
-            <label className="flex flex-col gap-0.5">
-              <span className="text-gray-600">{t('filter.deadlineBefore')}</span>
+            <div className="field filter-panel__field--full">
+              <span className="field__label" id={statusLabelId}>
+                {t('filter.status')}
+              </span>
+              <Segmented
+                labelId={statusLabelId}
+                testId="filter-status"
+                activeIndex={statusIndex}
+                options={STATUS_OPTIONS.map((option) => ({ label: t(option.labelKey) }))}
+                onSelect={(index) => set({ status: STATUS_OPTIONS[index].value })}
+              />
+            </div>
+            <label className="field">
+              <span className="field__label">{t('filter.deadlineBefore')}</span>
               <input
                 type="datetime-local"
                 step={1}
                 value={filter.deadlineBefore !== undefined ? epochToLocalInput(filter.deadlineBefore) : ''}
                 onChange={(e) => setDatetime('deadlineBefore', e.target.value)}
                 data-testid="filter-deadline-before"
-                className="w-full rounded border border-gray-300 px-1 py-0.5"
+                className="input input--compact input--mono"
               />
             </label>
-            <label className="flex flex-col gap-0.5">
-              <span className="text-gray-600">{t('filter.createdAfter')}</span>
+            <label className="field">
+              <span className="field__label">{t('filter.createdAfter')}</span>
               <input
                 type="datetime-local"
                 step={1}
                 value={filter.createdAfter !== undefined ? epochToLocalInput(filter.createdAfter) : ''}
                 onChange={(e) => setDatetime('createdAfter', e.target.value)}
                 data-testid="filter-created-after"
-                className="w-full rounded border border-gray-300 px-1 py-0.5"
+                className="input input--compact input--mono"
               />
             </label>
-            <label className="flex flex-col gap-0.5">
-              <span className="text-gray-600">{t('filter.createdBefore')}</span>
+            <label className="field">
+              <span className="field__label">{t('filter.createdBefore')}</span>
               <input
                 type="datetime-local"
                 step={1}
                 value={filter.createdBefore !== undefined ? epochToLocalInput(filter.createdBefore) : ''}
                 onChange={(e) => setDatetime('createdBefore', e.target.value)}
                 data-testid="filter-created-before"
-                className="w-full rounded border border-gray-300 px-1 py-0.5"
+                className="input input--compact input--mono"
               />
             </label>
-            <label className="flex flex-col gap-0.5">
-              <span className="text-gray-600">{t('filter.mode')}</span>
-              <select
-                value={mode}
-                onChange={(e) => onModeChange(e.target.value === 'highlight' ? 'highlight' : 'hide')}
-                data-testid="filter-mode"
-                className="w-full rounded border border-gray-300 px-1 py-0.5"
-              >
-                <option value="hide">{t('filter.hide')}</option>
-                <option value="highlight">{t('filter.highlight')}</option>
-              </select>
-            </label>
+            <div className="field filter-panel__field--full">
+              <span className="field__label" id={modeLabelId}>
+                {t('filter.mode')}
+              </span>
+              <Segmented
+                labelId={modeLabelId}
+                testId="filter-mode"
+                activeIndex={modeIndex}
+                options={MODE_OPTIONS.map((option) => ({ label: t(option.labelKey) }))}
+                onSelect={(index) => onModeChange(MODE_OPTIONS[index].value)}
+              />
+            </div>
             {active && (
-              <button
-                type="button"
-                onClick={clear}
-                data-testid="filter-clear"
-                className="rounded border border-gray-300 bg-white px-2 py-1 hover:bg-gray-50"
-              >
-                {t('filter.clear')}
-              </button>
+              <div className="filter-panel__actions">
+                <button type="button" onClick={clear} data-testid="filter-clear" className="btn btn--sm">
+                  {t('filter.clear')}
+                </button>
+              </div>
             )}
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

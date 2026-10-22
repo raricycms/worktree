@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { filterTree, hasActiveFilter } from '@worktree/core';
 import type { Node } from '@worktree/core';
 import type { DisplayPrefs } from '../config';
@@ -11,7 +12,9 @@ import { TreeView } from './TreeView';
 
 /**
  * Transient full-tree selector: the user clicks a node to link it to a block.
- * Picks are immediate — clicking a row closes the picker.
+ * Picks are immediate — clicking a row closes the picker. It is portalled to
+ * the body because the trigger lives in a card: a transformed or clipped
+ * ancestor would otherwise trap this fixed overlay inside the card.
  */
 export function NodePicker(props: {
   tree: Node;
@@ -44,50 +47,46 @@ export function NodePicker(props: {
     });
   };
 
-  return (
-    <div
-      data-testid="node-picker"
-      className="fixed inset-0 z-20 flex items-center justify-center bg-black/30 p-4"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-lg max-h-[80vh] overflow-auto rounded-lg border border-gray-300 bg-white p-4"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start justify-between gap-2">
+  return createPortal(
+    <div data-testid="node-picker" className="modal" onClick={onClose}>
+      <div className="modal__panel" onClick={(e) => e.stopPropagation()}>
+        <div className="modal__head">
           <div>
-            <h2 className="font-semibold">{t('calendar.pickTitle')}</h2>
-            <p className="mt-1 text-xs text-gray-500">{t('calendar.pickHint')}</p>
+            <h2 className="section-title">{t('calendar.pickTitle')}</h2>
+            <p className="tiny muted">{t('calendar.pickHint')}</p>
           </div>
+        </div>
+        <div className="node-picker__filters">
           <FilterBar filter={filter} mode={mode} onFilterChange={setFilter} onModeChange={setMode} />
         </div>
-        <div className="mt-2">
-          <TreeView
-            root={view}
-            expanded={expanded}
-            selectedId={currentId}
-            display={display}
-            onToggle={toggle}
-            onSelect={(id) => {
-              onPick(id);
-              onClose();
-            }}
-            filterActive={filterActive}
-            highlightMatches={mode === 'highlight'}
-          />
-        </div>
-        <button
-          type="button"
-          data-testid="node-picker-clear"
-          onClick={() => {
-            onPick(null);
+        <TreeView
+          root={view}
+          expanded={expanded}
+          selectedId={currentId}
+          display={display}
+          onToggle={toggle}
+          onSelect={(id) => {
+            onPick(id);
             onClose();
           }}
-          className="mt-3 rounded border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
-        >
-          {t('calendar.clearLink')}
-        </button>
+          filterActive={filterActive}
+          highlightMatches={mode === 'highlight'}
+        />
+        <div className="node-picker__footer">
+          <button
+            type="button"
+            data-testid="node-picker-clear"
+            onClick={() => {
+              onPick(null);
+              onClose();
+            }}
+            className="btn btn--sm"
+          >
+            {t('calendar.clearLink')}
+          </button>
+        </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

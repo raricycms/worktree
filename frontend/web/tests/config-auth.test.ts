@@ -58,6 +58,17 @@ describe('token storage', () => {
     expect(loadConfig().autoReminder).toEqual({ enabled: false, pct: 30 });
   });
 
+  it('defaults the theme to system and round-trips a valid preference', () => {
+    expect(loadConfig().theme).toBe('system');
+    saveConfig({ ...loadConfig(), theme: 'dark' });
+    expect(loadConfig().theme).toBe('dark');
+  });
+
+  it('falls back to the system theme when the stored value is invalid', () => {
+    localStorage.setItem('worktree.config', JSON.stringify({ theme: 'neon' }));
+    expect(loadConfig().theme).toBe('system');
+  });
+
   it('lists logged-in users for one server only, sorted', () => {
     saveToken('http://localhost:3000', 'bob', { token: 'tok-b', tokenId: 2 });
     saveToken('http://localhost:3000', 'alice', { token: 'tok-a', tokenId: 1 });

@@ -125,7 +125,7 @@ describe('CalendarPage grid', () => {
     expect(screen.getByTestId('block-b1').textContent).toContain('alpha');
   });
 
-  it('colors bars from the palette and dims completed ones', () => {
+  it('colors bars from the palette and marks completed ones', () => {
     renderPage(
       makeClient([
         blk('b1', day(15, 9), day(15, 10), true),
@@ -134,20 +134,31 @@ describe('CalendarPage grid', () => {
     );
     const done = screen.getByTestId('block-b1');
     const open = screen.getByTestId('block-b2');
-    expect(done.style.opacity).toBe('0.5');
+    expect(done.getAttribute('data-completed')).toBe('true');
+    expect(open.getAttribute('data-completed')).toBe('false');
+    expect(done.getAttribute('data-selected')).toBe('false');
+    expect(open.getAttribute('data-selected')).toBe('false');
     expect(done.style.backgroundColor).not.toBe('');
-    expect(done.className).not.toContain('bg-gray-400');
-    expect(open.style.opacity).toBe('');
     expect(open.style.backgroundColor).not.toBe('');
+    // Colour identity comes from the block id, not from the status.
+    const probe = document.createElement('div');
+    probe.style.backgroundColor = blockColor('b1');
+    expect(done.style.backgroundColor).toBe(probe.style.backgroundColor);
   });
 
-  it('highlights the today column header', () => {
+  it('marks the selected block bar', () => {
+    renderPage(makeClient([blk('b1', day(15, 9), day(15, 10))]));
+    expect(screen.getByTestId('block-b1').getAttribute('data-selected')).toBe('false');
+    fireEvent.click(screen.getByTestId('block-b1'));
+    expect(screen.getByTestId('block-b1').getAttribute('data-selected')).toBe('true');
+  });
+
+  it('marks the today column header', () => {
     renderPage(makeClient([]));
-    const header = screen.getByText('Thu 1/15');
-    expect(header.className).toContain('text-blue-700');
+    const today = screen.getByText('Thu 1/15');
+    expect(today).toHaveAttribute('data-today', 'true');
     fireEvent.click(screen.getByTestId('calendar-next'));
-    expect(screen.getByText('Fri 1/16')).toBeInTheDocument();
-    expect(screen.getByText('Fri 1/16').className).not.toContain('text-blue-700');
+    expect(screen.getByText('Fri 1/16')).toHaveAttribute('data-today', 'false');
   });
 
   it('navigates one day at a time and jumps back to today', () => {
@@ -180,6 +191,18 @@ describe('CalendarPage grid', () => {
     // Sep 16 segment: 0:00–2:00 in column 1.
     expect(second.style.top).toBe('0%');
     expect(second.style.height).toBe(pct(2 * DEFAULT_PX_PER_HOUR));
+  });
+});
+
+describe('CalendarPage frame', () => {
+  it('renders the page heading and toolbar actions', () => {
+    renderPage(makeClient([]));
+    expect(screen.getByRole('heading', { level: 1, name: 'Calendar' })).toBeInTheDocument();
+    expect(screen.getByTestId('calendar-date')).toHaveAttribute('aria-label', 'Jump to day');
+    expect(screen.getByTestId('calendar-prev')).toBeInTheDocument();
+    expect(screen.getByTestId('calendar-today')).toBeInTheDocument();
+    expect(screen.getByTestId('calendar-next')).toBeInTheDocument();
+    expect(screen.getByTestId('calendar-rules')).toBeInTheDocument();
   });
 });
 
@@ -264,7 +287,9 @@ describe('CalendarPage rule occurrences', () => {
     const bar = screen.getByTestId('occurrence-r1:42');
     expect(bar.style.top).toBe(pct(9 * DEFAULT_PX_PER_HOUR));
     expect(bar.style.height).toBe(pct(1.5 * DEFAULT_PX_PER_HOUR));
-    expect(bar.className).not.toContain('border-dashed');
+    expect(bar).toHaveAttribute('data-completed', 'false');
+    expect(bar).toHaveAttribute('data-selected', 'false');
+    expect(bar.className).toContain('cal-bar');
     expect(bar.textContent).toContain('standup');
     // jsdom normalizes colors; compare through the same normalization.
     const probe = document.createElement('div');
@@ -310,6 +335,7 @@ describe('CalendarPage rule occurrences', () => {
     });
     renderPage(client);
     fireEvent.click(screen.getByTestId('calendar-rules'));
+    expect(screen.getByTestId('rule-list-close')).toHaveAttribute('aria-label', 'Close');
     expect(screen.getByTestId('rule-list-r2').textContent).toContain('lecture');
     fireEvent.click(screen.getByTestId('rule-list-r2'));
     expect(screen.queryByTestId('rule-list-modal')).toBeNull();
@@ -324,7 +350,9 @@ describe('CalendarPage rule occurrences', () => {
     fireEvent.click(screen.getByTestId('calendar-add-rule'));
     expect(screen.getByTestId('rule-modal')).toBeInTheDocument();
     fireEvent.change(screen.getByTestId('rule-name'), { target: { value: 'standup' } });
-    fireEvent.change(screen.getByTestId('rule-freq'), { target: { value: 'weekly' } });
+    // Frequency is an inline expander now: open it, then pick the option.
+    fireEvent.click(screen.getByTestId('rule-freq'));
+    fireEvent.click(screen.getByTestId('rule-freq-option-weekly'));
     fireEvent.click(screen.getByTestId('rule-day-2'));
     fireEvent.click(screen.getByTestId('rule-save'));
     expect(client.addBlockRule).toHaveBeenCalledWith(

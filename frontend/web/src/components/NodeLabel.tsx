@@ -3,55 +3,75 @@ import type { ReactNode } from 'react';
 import { ROOT_ID } from '@worktree/core';
 import type { Node } from '@worktree/core';
 import type { DisplayPrefs } from '../config';
+import { useI18n } from '../i18n';
 import { nodeRowParts, shortId } from '../render';
 import type { NodeRowPart } from '../render';
 import { formatLocalDateTime } from '../time';
 import { CheckIcon, ClockIcon, PencilIcon } from './icons';
 
-/** Icons for the markers formatNode renders as glyphs (✔ ⏰ ✎). */
-const markerClass = 'inline h-3.5 w-3.5 align-[-3px]';
-
 /** One node row, same token order as the CLI format, but markers as SVG icons. */
-export function NodeLabel({ node, display }: { node: Node; display: DisplayPrefs }): ReactNode {
-  return nodeRowParts(node, display).map((part, i) => (
-    <Fragment key={i}>
-      {renderPart(part)}
-      {' '}
-    </Fragment>
-  ));
+export function NodeLabel({
+  node,
+  display,
+  matched,
+}: {
+  node: Node;
+  display: DisplayPrefs;
+  /** Highlight-mode match: the dot is the non-colour match signal. */
+  matched?: boolean;
+}): ReactNode {
+  const { t } = useI18n();
+  return (
+    <>
+      {matched === true && <span className="node-match" aria-hidden="true" />}
+      {nodeRowParts(node, display).map((part, i) => (
+        <Fragment key={i}>
+          {renderPart(part, t('stats.completed'))}
+          {' '}
+        </Fragment>
+      ))}
+    </>
+  );
 }
 
-function renderPart(part: NodeRowPart): ReactNode {
+function renderPart(part: NodeRowPart, completedLabel: string): ReactNode {
   switch (part.type) {
     case 'name':
-      return <span>{part.text}</span>;
+      return <span className="node-name">{part.text}</span>;
     case 'id':
       return (
-        <span className="opacity-70">
+        <span className="node-id">
           [{shortId(part.id)}]
         </span>
       );
     case 'status':
-      return <CheckIcon className={markerClass} />;
+      // The check icon carries the visual "done" state; the hidden word keeps
+      // the same information available without colour or glyph recognition.
+      return (
+        <>
+          <CheckIcon className="node-status" />
+          <span className="visually-hidden">{completedLabel}</span>
+        </>
+      );
     case 'weight':
-      return <span>w:{part.weight}</span>;
+      return <span className="node-meta node-meta--mono">w:{part.weight}</span>;
     case 'deadline':
       return (
-        <span className="inline-flex items-center gap-0.5">
-          <ClockIcon className={markerClass} />
+        <span className="node-meta node-meta--mono">
+          <ClockIcon className="icon icon--sm" />
           {formatLocalDateTime(part.ms)}
         </span>
       );
     case 'note':
       return (
-        <span className="inline-flex items-center gap-0.5">
-          <PencilIcon className={markerClass} />
-          {part.text}
+        <span className="node-meta">
+          <PencilIcon className="icon icon--sm" />
+          <span className="node-note">{part.text}</span>
         </span>
       );
     case 'reminders':
       return (
-        <span>
+        <span className="node-meta node-meta--mono">
           R({part.count}):{part.text}
         </span>
       );

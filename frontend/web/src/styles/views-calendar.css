@@ -1,0 +1,154 @@
+/* Calendar page specifics. Shared visual language lives in components.css. */
+@layer components {
+  /* The page frame (head + body padding) takes height the shared grid rule did
+     not account for; the grid fills what is left instead of pushing the page
+     into a second scrollbar. */
+  .cal-page .cal {
+    position: relative;
+    height: clamp(340px, calc(100dvh - 300px), 880px);
+    min-height: 0;
+  }
+
+  @media (max-width: 767px) {
+    .cal-page .cal {
+      height: clamp(320px, calc(100dvh - 380px), 760px);
+    }
+  }
+
+  /* The canvas is the one scroll box: horizontal padding keeps bars and the
+     today tint off the card's rounded corners, and the reserved scrollbar
+     gutter keeps the day columns from shifting when the grid starts to scroll. */
+  .cal-page .cal__canvas {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding: 0 8px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+    overscroll-behavior: contain;
+  }
+
+  /* Pinned above the grid while sharing its content box, so a day head sits
+     exactly over its columns regardless of scrollbar or card padding. */
+  .cal-page .cal__head {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    align-items: center;
+    min-height: 34px;
+    padding: 2px 0 4px;
+    background: var(--card);
+  }
+
+  /* Content sliding under the pinned head gets a soft edge instead of a cut. */
+  .cal-page .cal__head::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    right: 0;
+    left: 0;
+    height: 10px;
+    background: linear-gradient(to bottom, var(--card), transparent);
+    pointer-events: none;
+  }
+
+  /* Exactly HOUR_GUTTER_PX (44px): the bar geometry in calendar-utils is baked
+     against it, so a day head only lines up while this stays 44px. */
+  .cal-page .cal__gutter {
+    flex: none;
+    width: 44px;
+  }
+
+  /* One text node ("Thu 1/15") that is allowed to wrap to two lines when a
+     seven-day grid leaves ~44px per column; no ellipsis, no overlap. */
+  .cal-page .cal__dayhead {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 0 2px;
+    line-height: 1.15;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  /* The grid grows to fill the canvas but never shrinks below its inline
+     min-height, which is when the canvas scrolls instead. */
+  .cal-page .cal__canvas-inner {
+    flex: 1 0 auto;
+    height: auto;
+  }
+
+  /* The grid is taller than the card on short viewports; fade the cut so it
+     reads as scrolling content rather than a bar leaking out of the corner. */
+  .cal-page .cal::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 3;
+    height: 26px;
+    border-radius: 0 0 var(--r-card) var(--r-card);
+    background: linear-gradient(to top, var(--card), transparent);
+    pointer-events: none;
+  }
+
+  /* Below the mobile breakpoint the toolbar wraps into two rows, so the rows
+     get an explicit gap instead of inheriting only the column gap. */
+  @media (max-width: 767px) {
+    .cal-page .cal-toolbar {
+      row-gap: var(--gap-xs);
+    }
+  }
+
+  /* Static "now" marker: brand colour, no pulse or other infinite motion. */
+  .cal-page .cal__now {
+    position: absolute;
+    height: 2px;
+    border-radius: var(--r-pill);
+    background: var(--brand);
+    opacity: 0.85;
+    pointer-events: none;
+    animation: cal-now-in var(--dur-fade) var(--ease-out);
+  }
+
+  .cal-page .cal__now::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: -3px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--brand);
+    transform: translateY(-50%);
+  }
+
+  /* A bar enters by unfolding from its start time; no fill mode, so completed
+     bars keep the shared opacity state once the entry finishes. */
+  .cal-page .cal-bar {
+    transform-origin: top;
+    animation: cal-bar-in 260ms var(--ease-out);
+  }
+
+  @keyframes cal-bar-in {
+    from {
+      opacity: 0;
+      transform: scaleY(0.92);
+    }
+  }
+
+  @keyframes cal-now-in {
+    from {
+      opacity: 0;
+    }
+  }
+
+  /* The picker footer sits after the tree, which draws no bottom margin. */
+  .node-picker__footer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--gap-xs);
+    margin-top: var(--gap-sm);
+  }
+}

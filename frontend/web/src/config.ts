@@ -1,6 +1,8 @@
 import { DEFAULT_CAPTURE_PATH, USER_RE, isRecord, normalizeCapturePath } from '@worktree/core';
 import type { NodeFilter } from '@worktree/core';
 import { DEFAULT_AUTO_REMINDER_PCT, clampAutoReminderPct } from '@worktree/client';
+import { isThemePref } from './theme';
+import type { ThemePref } from './theme';
 
 export const DEFAULT_SERVER = 'https://worktree.fuyuzheju.cn';
 export const LOCAL_USER = 'local';
@@ -33,6 +35,8 @@ export interface AppConfig {
   autoReminder: AutoReminderSetting;
   /** Where the capture overlay (⌘K / ?quick=1) adds nodes. */
   quickAddPath: string;
+  /** Light, dark, or follow the OS. */
+  theme: ThemePref;
 }
 
 const CONFIG_KEY = 'worktree.config';
@@ -46,6 +50,7 @@ const defaultConfig: AppConfig = {
   calendarDays: 7,
   autoReminder: { enabled: true, pct: DEFAULT_AUTO_REMINDER_PCT },
   quickAddPath: DEFAULT_CAPTURE_PATH,
+  theme: 'system',
 };
 
 function parseAutoReminder(raw: unknown): AutoReminderSetting {
@@ -100,6 +105,7 @@ export function loadConfig(): AppConfig {
       calendarDays: typeof parsed.calendarDays === 'number' ? parsed.calendarDays : defaultConfig.calendarDays,
       autoReminder: parseAutoReminder(parsed.autoReminder),
       quickAddPath: parseCapturePath(parsed.quickAddPath),
+      theme: isThemePref(parsed.theme) ? parsed.theme : defaultConfig.theme,
     };
   } catch {
     return defaultConfig;

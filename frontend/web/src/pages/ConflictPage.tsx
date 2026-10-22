@@ -139,108 +139,118 @@ export function ConflictPage(props: {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 p-4 text-gray-900 md:p-6">
-      <div className="mx-auto max-w-6xl">
-        <h1 className="text-xl font-bold">{t('conflict.title')}</h1>
-        <p className="mt-1 text-sm text-gray-600">{t('conflict.explanation')}</p>
-        <p className="mt-1 font-mono text-xs text-gray-500">
-          {t('conflict.base', { base: conflict.baseId ?? '∅' })}
-        </p>
-        {hasDiff ? (
-          <p className="mt-1 flex items-center gap-3 text-xs text-gray-500">
-            <span className="flex items-center gap-1">
-              <span className="inline-block h-3 w-3 rounded-sm bg-rose-100 ring-1 ring-rose-300" />
-              {t('conflict.onlyHere')}
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="inline-block h-3 w-3 rounded-sm bg-amber-100 ring-1 ring-amber-300" />
-              {t('conflict.changedHere')}
-            </span>
-          </p>
-        ) : (
-          <p className="mt-1 text-xs text-gray-500">{t('conflict.identical')}</p>
-        )}
-
-        <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div className="rounded border border-gray-300 bg-white p-3">
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold">{t('conflict.serverVersion')}</h2>
-              <span className="text-xs text-gray-500">
-                {t('conflict.newOps', { n: conflict.serverBranch.length })}
-              </span>
-            </div>
-            {conflict.serverBranch.length > 0 && (
-              <ul className="mt-1 font-mono text-xs text-gray-500">
-                {conflict.serverBranch.map((n) => (
-                  <li key={n.id}>{formatHistoryNode(n)}</li>
-                ))}
-              </ul>
-            )}
-            <div className="mt-2 max-h-[50vh] overflow-auto">
-              <TreeView
-                root={filterTree(serverTree, {})}
-                expanded={serverExpanded}
-                selectedId={null}
-                display={display}
-                onToggle={(id) => setServerExpanded((s) => toggleIn(s, id))}
-                onSelect={() => undefined}
-                readOnly
-                highlight={serverHighlight}
-              />
-            </div>
-          </div>
-          <div className="rounded border border-gray-300 bg-white p-3">
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold">{t('conflict.yourVersion')}</h2>
-              <span className="text-xs text-gray-500">
-                {t('conflict.pendingOps', { n: conflict.localBranch.length })}
-              </span>
-            </div>
-            {conflict.localBranch.length > 0 && (
-              <ul className="mt-1 font-mono text-xs text-gray-500">
-                {conflict.localBranch.map((h) => (
-                  <li key={h.id}>{formatHistoryOp(h)}</li>
-                ))}
-              </ul>
-            )}
-            <div className="mt-2 max-h-[50vh] overflow-auto">
-              <TreeView
-                root={filterTree(localTree, {})}
-                expanded={localExpanded}
-                selectedId={null}
-                display={display}
-                onToggle={(id) => setLocalExpanded((s) => toggleIn(s, id))}
-                onSelect={() => undefined}
-                readOnly
-                highlight={localHighlight}
-              />
-            </div>
+    <div className="standalone">
+      <header className="page-head">
+        <div className="page-head__inner">
+          <div>
+            <h1 className="page-title">{t('conflict.title')}</h1>
+            <p className="page-meta mono">{t('conflict.base', { base: conflict.baseId ?? '∅' })}</p>
           </div>
         </div>
+      </header>
 
-        <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-          <button
-            type="button"
-            disabled={resolving !== null}
-            onClick={() => void resolve('server')}
-            data-testid="conflict-keep-server"
-            className="w-full rounded bg-blue-600 px-4 py-2.5 text-white hover:bg-blue-700 disabled:opacity-40 sm:w-auto sm:py-2"
-          >
-            {resolving === 'server' ? t('conflict.resolving') : t('conflict.keepServer')}
-          </button>
-          <button
-            type="button"
-            disabled={resolving !== null}
-            onClick={() => void resolve('local')}
-            data-testid="conflict-keep-local"
-            className="w-full rounded bg-green-600 px-4 py-2.5 text-white hover:bg-green-700 disabled:opacity-40 sm:w-auto sm:py-2"
-          >
-            {resolving === 'local' ? t('conflict.resolving') : t('conflict.keepLocal')}
-          </button>
+      <div className="page-body">
+        <div className="stack stack--lg">
+          <p className="page-lead">{t('conflict.explanation')}</p>
+
+          {hasDiff ? (
+            <div className="diff-legend">
+              <span className="diff-legend__item">
+                <span className="diff-swatch diff-swatch--only" aria-hidden="true" />
+                {t('conflict.onlyHere')}
+              </span>
+              <span className="diff-legend__item">
+                <span className="diff-swatch diff-swatch--changed" aria-hidden="true" />
+                {t('conflict.changedHere')}
+              </span>
+            </div>
+          ) : (
+            <p className="page-meta">{t('conflict.identical')}</p>
+          )}
+
+          <div className="split">
+            <section className="branch">
+              <div className="branch__head">
+                <h2 className="section-title">{t('conflict.serverVersion')}</h2>
+                <span className="muted small">
+                  {t('conflict.newOps', { n: conflict.serverBranch.length })}
+                </span>
+              </div>
+              {conflict.serverBranch.length > 0 && (
+                <ul className="branch__ops">
+                  {conflict.serverBranch.map((n) => (
+                    <li key={n.id}>{formatHistoryNode(n)}</li>
+                  ))}
+                </ul>
+              )}
+              <div className="branch__tree">
+                <TreeView
+                  root={filterTree(serverTree, {})}
+                  expanded={serverExpanded}
+                  selectedId={null}
+                  display={display}
+                  onToggle={(id) => setServerExpanded((s) => toggleIn(s, id))}
+                  onSelect={() => undefined}
+                  readOnly
+                  highlight={serverHighlight}
+                />
+              </div>
+            </section>
+
+            <section className="branch">
+              <div className="branch__head">
+                <h2 className="section-title">{t('conflict.yourVersion')}</h2>
+                <span className="muted small">
+                  {t('conflict.pendingOps', { n: conflict.localBranch.length })}
+                </span>
+              </div>
+              {conflict.localBranch.length > 0 && (
+                <ul className="branch__ops">
+                  {conflict.localBranch.map((h) => (
+                    <li key={h.id}>{formatHistoryOp(h)}</li>
+                  ))}
+                </ul>
+              )}
+              <div className="branch__tree">
+                <TreeView
+                  root={filterTree(localTree, {})}
+                  expanded={localExpanded}
+                  selectedId={null}
+                  display={display}
+                  onToggle={(id) => setLocalExpanded((s) => toggleIn(s, id))}
+                  onSelect={() => undefined}
+                  readOnly
+                  highlight={localHighlight}
+                />
+              </div>
+            </section>
+          </div>
+
+          <div className="resolutions">
+            <button
+              type="button"
+              disabled={resolving !== null}
+              onClick={() => void resolve('server')}
+              data-testid="conflict-keep-server"
+              className="btn btn--primary w-full sm:w-auto"
+            >
+              {resolving === 'server' ? t('conflict.resolving') : t('conflict.keepServer')}
+            </button>
+            <button
+              type="button"
+              disabled={resolving !== null}
+              onClick={() => void resolve('local')}
+              data-testid="conflict-keep-local"
+              className="btn btn--primary w-full sm:w-auto"
+            >
+              {resolving === 'local' ? t('conflict.resolving') : t('conflict.keepLocal')}
+            </button>
+          </div>
+
+          {error !== null && (
+            <div className="notice notice--danger">{t('conflict.error', { message: error })}</div>
+          )}
         </div>
-        {error !== null && (
-          <div className="mt-3 text-sm text-red-700">{t('conflict.error', { message: error })}</div>
-        )}
       </div>
     </div>
   );

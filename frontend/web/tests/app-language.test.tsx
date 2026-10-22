@@ -18,15 +18,19 @@ describe('App language', () => {
       }),
     );
     render(<App />);
-    expect(screen.getByText('Tree')).toBeDefined();
+    // The page title and the nav item both say "Tree": they are different roles.
+    expect(screen.getByRole('heading', { name: 'Tree' })).toBeDefined();
+    expect(screen.getByRole('button', { name: 'Tree' })).toBeDefined();
 
-    fireEvent.click(screen.getByText('Settings'));
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
     expect(screen.getByTestId('settings-language')).toBeDefined();
-    fireEvent.change(screen.getByTestId('settings-language'), { target: { value: 'zh' } });
+    fireEvent.click(screen.getByTestId('settings-language'));
+    fireEvent.click(screen.getByTestId('settings-language-option-zh'));
 
-    expect(screen.getByText('节点树')).toBeDefined();
+    expect(screen.getByRole('heading', { name: '设置' })).toBeDefined();
+    expect(screen.getByRole('button', { name: '节点树' })).toBeDefined();
     expect(screen.getByRole('button', { name: '日历' })).toBeDefined();
-    expect(screen.getByText('语言')).toBeDefined();
+    expect(screen.getByRole('heading', { name: '语言' })).toBeDefined();
     expect(document.documentElement.lang).toBe('zh');
     expect(JSON.parse(localStorage.getItem('worktree.config')!).lang).toBe('zh');
   });

@@ -61,6 +61,12 @@ function renderPanel(client: FakeClient, rule: BlockRule | null, day?: number): 
   );
 }
 
+/** Opens an inline expander and clicks one of its options. */
+function chooseOption(testId: string, value: string): void {
+  fireEvent.click(screen.getByTestId(testId));
+  fireEvent.click(screen.getByTestId(`${testId}-option-${value}`));
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -95,7 +101,7 @@ describe('RuleDetailPanel creation', () => {
     const client = makeClient();
     renderPanel(client, null);
     fireEvent.change(screen.getByTestId('rule-name'), { target: { value: 'rent' } });
-    fireEvent.change(screen.getByTestId('rule-freq'), { target: { value: 'monthly' } });
+    chooseOption('rule-freq', 'monthly');
     fireEvent.change(screen.getByTestId('rule-month-day'), { target: { value: 'last' } });
     fireEvent.change(screen.getByTestId('rule-until'), { target: { value: '2026-06-30' } });
     fireEvent.click(screen.getByTestId('rule-save'));
@@ -115,9 +121,9 @@ describe('RuleDetailPanel creation', () => {
     const client = makeClient();
     renderPanel(client, null);
     fireEvent.change(screen.getByTestId('rule-name'), { target: { value: 'review' } });
-    fireEvent.change(screen.getByTestId('rule-freq'), { target: { value: 'monthly' } });
+    chooseOption('rule-freq', 'monthly');
     fireEvent.click(screen.getByTestId('rule-nth-mode'));
-    fireEvent.change(screen.getByTestId('rule-nth'), { target: { value: '2' } });
+    chooseOption('rule-nth', '2');
     fireEvent.click(screen.getByTestId('rule-nth-day-0')); // Sunday, next to the anchor's Thursday
     fireEvent.click(screen.getByTestId('rule-save'));
     expect(client.addBlockRule).toHaveBeenCalledWith(
@@ -194,7 +200,7 @@ describe('RuleDetailPanel editing', () => {
     const client = makeClient();
     renderPanel(client, ruleOf({ freq: 'monthly', byDay: undefined, byMonthDay: [15] }));
     fireEvent.click(screen.getByTestId('rule-nth-mode'));
-    fireEvent.change(screen.getByTestId('rule-nth'), { target: { value: '1' } });
+    chooseOption('rule-nth', '1');
     fireEvent.click(screen.getByTestId('rule-nth-day-3'));
     fireEvent.click(screen.getByTestId('rule-save'));
     expect(client.editBlockRule).toHaveBeenCalledWith('r1', {

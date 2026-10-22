@@ -170,7 +170,11 @@ describe('NodeDetailPanel note and deadline editing', () => {
   it('shows createdAt and deadline in the metadata', () => {
     const node = nodeWithFields();
     renderPanel(node, makeClient(node));
+    const tabs = screen.getByRole('tablist');
+    expect(tabs.getAttribute('data-count')).toBe('3');
+    expect(tabs.getAttribute('data-active')).toBe('0');
     fireEvent.click(screen.getByTestId('detail-tab-info'));
+    expect(tabs.getAttribute('data-active')).toBe('1');
     expect(screen.getByTestId('detail-created').textContent).toContain('2025-06-');
     expect(screen.getByTestId('detail-deadline-value').textContent).toContain('2025-10-');
   });

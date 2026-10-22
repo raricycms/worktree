@@ -4,7 +4,7 @@ import type { Node } from '@worktree/core';
 import type { WorktreeClient } from '@worktree/client';
 import type { AppConfig, AutoReminderSetting, DisplayPrefs } from '../config';
 import { useI18n } from '../i18n';
-import { useIsMobile } from '../hooks/useMediaQuery';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import { ancestorIds, findNode } from '../tree-utils';
 import { TreeView } from '../components/TreeView';
 import { FilterBar } from '../components/FilterBar';
@@ -25,8 +25,10 @@ export function TreePage(props: {
   autoReminder?: AutoReminderSetting;
 }) {
   const { t } = useI18n();
-  const { tree, client, display, updateConfig, initialNodeId, focusNode, autoReminder } = props;
-  const isMobile = useIsMobile();
+  const { tree, client, display, initialNodeId, focusNode, autoReminder } = props;
+  // Below 992px the side column is hidden by CSS, so the detail has to become
+  // a sheet at the same breakpoint or 768–991px would show no detail at all.
+  const compact = useMediaQuery('(max-width: 991px)');
   const { filter, mode, setFilter, setMode } = useFilter();
   const [expanded, setExpanded] = useState<Set<string>>(
     () => (initialNodeId === undefined ? new Set() : new Set(ancestorIds(tree, initialNodeId))),
@@ -91,39 +93,56 @@ export function TreePage(props: {
   const close = (): void => setSelectedId(null);
 
   return (
-    <div ref={rootRef} className={`flex w-full flex-1 min-h-0 ${isMobile ? 'flex-col' : ''}`}>
-      <div className="relative flex min-w-0 flex-1 overflow-auto">
-        <div className="flex min-w-0 flex-1 bg-gray-100">
-          <TreeView
-            root={view}
-            expanded={expanded}
-            selectedId={selectedId}
-            display={display}
-            onToggle={toggle}
-            onSelect={select}
-            filterActive={filterActive}
-            highlightMatches={mode === 'highlight'}
-          />
+    <div ref={rootRef} className="page-wrap">
+      <header className="page-head">
+        <div className="page-head__inner">
+          <h1 className="page-title">{t('tabs.tree')}</h1>
         </div>
-        <div className="absolute right-2 top-0 z-10">
-          <FilterBar filter={filter} mode={mode} onFilterChange={setFilter} onModeChange={setMode} />
+      </header>
+      <div className="page-body">
+        <div className="workbench">
+          <div className="workbench__main">
+            <div className="tree-panel">
+              <FilterBar filter={filter} mode={mode} onFilterChange={setFilter} onModeChange={setMode} />
+              <div className="card tree-panel__surface">
+                <TreeView
+                  root={view}
+                  expanded={expanded}
+                  selectedId={selectedId}
+                  display={display}
+                  onToggle={toggle}
+                  onSelect={select}
+                  filterActive={filterActive}
+                  highlightMatches={mode === 'highlight'}
+                />
+              </div>
+            </div>
+          </div>
+          {!compact && (
+            <aside className="workbench__side" data-testid="tree-side">
+              {selected !== undefined ? (
+                <div className="card">
+                  <NodeDetailPanel
+                    bare
+                    node={selected}
+                    client={client}
+                    onClose={close}
+                    autoReminder={autoReminder}
+                  />
+                </div>
+              ) : (
+                <div className="card card--quiet">
+                  <p className="small muted">{t('tree.selectHint')}</p>
+                </div>
+              )}
+            </aside>
+          )}
         </div>
       </div>
-      {isMobile ? (
-        selected !== undefined && (
-          <div className="max-h-[55vh] min-h-[55vh] w-full overflow-y-auto rounded-t-2xl border-t border-gray-300 bg-white shadow-2xl">
-            <NodeDetailPanel bare node={selected} client={client} onClose={close} autoReminder={autoReminder} />
-          </div>
-        )
-      ) : (
-        <div className="w-96 shrink-0">
-          {selected !== undefined ? (
-            <NodeDetailPanel bare node={selected} client={client} onClose={close} autoReminder={autoReminder} />
-          ) : (
-            <div className="rounded border border-gray-300 bg-white p-4 text-sm text-gray-500">
-              {t('tree.selectHint')}
-            </div>
-          )}
+      {compact && selected !== undefined && (
+        <div className="sheet" data-testid="tree-sheet">
+          <div className="sheet__handle" aria-hidden="true" />
+          <NodeDetailPanel bare node={selected} client={client} onClose={close} autoReminder={autoReminder} />
         </div>
       )}
     </div>

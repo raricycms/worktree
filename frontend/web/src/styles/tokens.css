@@ -1,0 +1,129 @@
+/* Design tokens 鈥?the current implementation of the interface stance.
+   Light is the default; [data-theme='dark'] is a re-arrangement of lightness,
+   not an inversion: the same relations carry the same jobs in both themes. */
+:root {
+  color-scheme: light;
+
+  /* The only light on the site: brand blue, for lift and focus. */
+  --brand: #2563eb;
+  --brand-ink: #ffffff;
+  --brand-tint: rgba(37, 99, 235, 0.1);
+  --brand-tint-strong: rgba(37, 99, 235, 0.16);
+  --glow-lift: 0 2px 25px rgba(37, 99, 235, 0.15);
+  --glow-focus: 0 0 25px rgba(37, 99, 235, 0.28);
+
+  /* Three-stage paper: page 鈫?card 鈫?inside the card. */
+  --paper: #f8fafc;
+  --card: #ffffff;
+  --inset: #eff2f5;
+
+  --ink: #0f172a;
+  --ink-2: #64748b;
+
+  /* Severity. Red is danger and undo only; green is done; yellow is favorite. */
+  --danger: #ea3b3b;
+  --danger-tint: rgba(234, 59, 59, 0.1);
+  --danger-tint-strong: rgba(234, 59, 59, 0.18);
+  --success: #10b981;
+  --success-tint: rgba(16, 185, 129, 0.1);
+  --favorite: #f1c40f;
+  --favorite-tint: rgba(241, 196, 15, 0.12);
+
+  /* Category hues: they only separate parallel things and carry no judgement.
+     They are content identity, so they do not change between themes. */
+  --cat-1: #4f46e5;
+  --cat-2: #7c3aed;
+  --cat-3: #a21caf;
+  --cat-4: #be185d;
+  --cat-5: #0e7490;
+  --cat-6: #0f766e;
+  --cat-7: #b45309;
+  --cat-8: #475569;
+
+  /* Lines are never hierarchy: they only draw scales and inline marks. */
+  --hairline: rgba(15, 23, 42, 0.08);
+  --hairline-strong: rgba(15, 23, 42, 0.16);
+  --scrim: rgba(15, 23, 42, 0.32);
+
+  /* Shape is classification: pill = one-line actionable, card = container,
+     field = multi-line input, sub = secondary block, mark = inline mark. */
+  --r-pill: 999px;
+  --r-card: 30px;
+  --r-field: 20px;
+  --r-sub: 10px;
+  --r-mark: 5px;
+
+  --fs-page: clamp(2rem, 5vw, 3.2rem);
+  --fs-card-title: 1.3rem;
+  --fs-body: 0.9rem;
+  --fs-sm: 0.8rem;
+  --fs-xs: 0.75rem;
+
+  --font-display: 'Kumbh Sans', 'Outfit', ui-sans-serif, system-ui, sans-serif;
+  --font-body: 'Outfit', 'Kumbh Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  /* Data (ids, weights, dates, counts): the same monospace metrics, with the
+     zero drawn as an O so a number can never be read as a letter. Letters in a
+     mixed value fall through to --font-mono. */
+  --font-data: 'Raricy Numeric', var(--font-mono);
+
+  /* Motion: color swap 250, press 150, hover/focus 200, shell 420.
+     expand is the one long gesture: a panel unfolding from its trigger. */
+  --dur-swap: 250ms;
+  --dur-press: 150ms;
+  --dur-hover: 200ms;
+  --dur-fade: 180ms;
+  --dur-shell: 420ms;
+  --dur-expand: 420ms;
+  --dur-enter: 520ms;
+  --delay-stagger: 28ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-standard: ease;
+
+  /* Tree geometry: one level of indent, and the y of the branch elbow (the
+     first line's middle inside a row). */
+  --tree-indent: 18px;
+  --tree-branch-y: 15px;
+
+  --gap-xs: 6px;
+  --gap-sm: 10px;
+  --gap: 16px;
+  --gap-lg: 24px;
+  --gap-xl: 32px;
+
+  --container: 1140px;
+  --container-narrow: 960px;
+  --gutter: 16px;
+  --topbar-h: 62px;
+  --detail-w: 380px;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --brand: #23a5ff;
+  --brand-ink: #08131f;
+  --brand-tint: rgba(35, 165, 255, 0.14);
+  --brand-tint-strong: rgba(35, 165, 255, 0.22);
+  --glow-lift: 0 2px 25px rgba(35, 165, 255, 0.2);
+  --glow-focus: 0 0 25px rgba(35, 165, 255, 0.32);
+
+  --paper: #131517;
+  --card: #181a1d;
+  --inset: #21252a;
+
+  --ink: #f1f5f9;
+  --ink-2: #94a3b8;
+
+  --danger: #ff3535;
+  --danger-tint: rgba(255, 53, 53, 0.12);
+  --danger-tint-strong: rgba(255, 53, 53, 0.2);
+  --success: #10b981;
+  --success-tint: rgba(16, 185, 129, 0.12);
+  --favorite: #ffd93d;
+  --favorite-tint: rgba(255, 217, 61, 0.12);
+
+  --hairline: rgba(241, 245, 249, 0.08);
+  --hairline-strong: rgba(241, 245, 249, 0.16);
+  --scrim: rgba(3, 7, 12, 0.62);
+}

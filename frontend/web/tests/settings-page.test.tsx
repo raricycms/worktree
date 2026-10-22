@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { Tree } from '@worktree/core';
 import { ROOT_ID } from '@worktree/core';
 import type { Node } from '@worktree/core';
@@ -21,6 +21,7 @@ function makeConfig(calendarDays: number): AppConfig {
     calendarDays,
     autoReminder: { enabled: true, pct: 15 },
     quickAddPath: '/tmp',
+    theme: 'system',
   };
 }
 
@@ -47,14 +48,17 @@ afterEach(() => {
 });
 
 describe('SettingsPage calendar', () => {
-  it('renders the configured day count', () => {
+  it('shows the configured day count on the closed expander', () => {
     renderSettings(5);
-    expect(screen.getByTestId<HTMLSelectElement>('settings-calendar-days').value).toBe('5');
+    const toggle = screen.getByTestId('settings-calendar-days');
+    expect(toggle.textContent).toBe('5');
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
   });
 
   it('updates the day count', () => {
     const { updateConfig } = renderSettings(7);
-    fireEvent.change(screen.getByTestId('settings-calendar-days'), { target: { value: '6' } });
+    fireEvent.click(screen.getByTestId('settings-calendar-days'));
+    fireEvent.click(screen.getByTestId('settings-calendar-days-option-6'));
     expect(updateConfig).toHaveBeenCalledWith({ calendarDays: 6 });
   });
 });
@@ -79,13 +83,47 @@ describe('SettingsPage quick capture path', () => {
 describe('SettingsPage language', () => {
   it('offers every catalogue, labelled in its own language', () => {
     const { updateConfig } = renderSettings(7);
-    const select = screen.getByTestId<HTMLSelectElement>('settings-language');
-    expect([...select.options].map((o) => [o.value, o.textContent])).toEqual([
-      ['en', 'English'],
-      ['zh', '中文'],
+    fireEvent.click(screen.getByTestId('settings-language'));
+    const list = within(screen.getByRole('listbox', { name: 'Language' }));
+    expect(list.getAllByRole('option').map((option) => [option.textContent, option.getAttribute('data-testid')])).toEqual([
+      ['English', 'settings-language-option-en'],
+      ['中文', 'settings-language-option-zh'],
     ]);
-    fireEvent.change(select, { target: { value: 'zh' } });
+    fireEvent.click(screen.getByTestId('settings-language-option-zh'));
     expect(updateConfig).toHaveBeenCalledWith({ lang: 'zh' });
+  });
+});
+
+describe('SettingsPage display', () => {
+  it('shows the filter mode as a two-item slider and applies a new one', () => {
+    const { updateConfig } = renderSettings(7);
+    const slider = screen.getByRole('group', { name: 'Filter display mode' });
+    expect(slider.getAttribute('data-count')).toBe('2');
+    expect(slider.getAttribute('data-active')).toBe('0');
+    expect(screen.getByTestId('settings-filter-mode-hide').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('settings-filter-mode-highlight').getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(screen.getByTestId('settings-filter-mode-highlight'));
+    expect(updateConfig).toHaveBeenCalledWith({
+      display: { showId: true, showWeight: true, showReminders: true, filterMode: 'highlight' },
+    });
+  });
+});
+
+describe('SettingsPage theme', () => {
+  it('marks the configured theme as pressed', () => {
+    renderSettings(7);
+    const slider = screen.getByRole('group', { name: 'Theme' });
+    expect(slider.getAttribute('data-count')).toBe('3');
+    expect(slider.getAttribute('data-active')).toBe('0');
+    expect(screen.getByTestId('settings-theme-system').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('settings-theme-light').getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByTestId('settings-theme-dark').getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('updates the theme preference', () => {
+    const { updateConfig } = renderSettings(7);
+    fireEvent.click(screen.getByTestId('settings-theme-dark'));
+    expect(updateConfig).toHaveBeenCalledWith({ theme: 'dark' });
   });
 });
 

@@ -1,0 +1,16 @@
+/* Detail panel specifics. Shared visual language lives in components.css. */
+@layer components {
+  .detail__list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .detail__list-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--gap-sm);
+    font-size: var(--fs-sm);
+  }
+}

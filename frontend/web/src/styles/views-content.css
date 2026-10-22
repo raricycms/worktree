@@ -1,0 +1,24 @@
+/* Stats, settings, auth, conflict and repair specifics.
+   Shared visual language lives in components.css. */
+@layer components {
+  .page-lead {
+    max-width: 60ch;
+    color: var(--ink-2);
+    font-size: var(--fs-sm);
+  }
+
+  /* Settings: one vertical rhythm inside each card. Adjoining margins collapse,
+     so the section head keeps its own gap under the title. */
+  .settings .card > * + * {
+    margin-top: var(--gap-sm);
+  }
+
+  /* A single selected data value in a settings row: the number is the state,
+     the label is its name. */
+  .setting__value {
+    font-family: var(--font-data);
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+    font-size: var(--fs-body);
+  }
+}

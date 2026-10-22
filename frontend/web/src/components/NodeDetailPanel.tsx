@@ -8,7 +8,8 @@ import type { AutoReminderSetting } from '../config';
 import { flattenTree, descendants } from '../tree-utils';
 import { formatReminder } from '../render';
 import { epochToLocalInput, formatLocalDateTime, localInputToEpoch } from '../time';
-import { CheckIcon, ClockIcon, CopyIcon, MoveIcon, NoteIcon, PencilIcon, PlusIcon, TrashIcon, XIcon } from './icons';
+import { ExpandSelect } from './ExpandSelect';
+import { CheckIcon, TrashIcon, XIcon } from './icons';
 
 const REPEAT_PRESETS: { key: string; ms: number | null }[] = [
   { key: 'detail.repeatPresets.none', ms: null },
@@ -16,6 +17,8 @@ const REPEAT_PRESETS: { key: string; ms: number | null }[] = [
   { key: 'detail.repeatPresets.day', ms: 86_400_000 },
   { key: 'detail.repeatPresets.week', ms: 604_800_000 },
 ];
+
+type DetailTab = 'operation' | 'info' | 'reminders';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -61,7 +64,7 @@ export function NodeDetailPanel(props: {
     });
   };
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<'operation' | 'info' | 'reminders'>('operation');
+  const [tab, setTab] = useState<DetailTab>('operation');
 
   const [renameValue, setRenameValue] = useState(node.name);
   const [childName, setChildName] = useState('');
@@ -126,10 +129,12 @@ export function NodeDetailPanel(props: {
     onChange: (v: string) => void,
     options: typeof flat,
   ): ReactElement => (
+    // A move/copy target is a long, data-driven tree rendered with indentation,
+    // not a short settings vocabulary: it stays a native select on purpose.
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="w-full rounded border border-gray-300 px-2 py-1 font-mono text-xs sm:w-auto sm:flex-1"
+      className="select w-full sm:w-auto sm:flex-1"
     >
       {options.map((f) => (
         <option key={f.node.id} value={f.node.id}>
@@ -183,49 +188,47 @@ export function NodeDetailPanel(props: {
   };
 
   const reminders = node.reminders;
+  const detailTabs: { id: DetailTab; label: string }[] = [
+    { id: 'operation', label: t('detail.tabOperation') },
+    { id: 'info', label: t('detail.tabInfo') },
+    { id: 'reminders', label: t('detail.tabReminders') },
+  ];
+  const tabIndex = detailTabs.findIndex((entry) => entry.id === tab);
+  if (tabIndex === -1) throw new Error(`unknown detail tab: ${tab}`);
 
   return (
-    <div
-      data-detail
-      className={"rounded border border-gray-300 bg-white p-4 pt-0 text-sm h-full overflow-auto"}
-    >
-      <div
-        className={`flex items-center justify-between ${
-          bare === true ? 'sticky top-0 z-10 -mx-4 mb-1 bg-white px-4 py-1' : ''
-        }`}
-      >
-        <h1 className="font-semibold text-1.5xl">{t('detail.title')}</h1>
-        <button
-          type="button"
-          onClick={onClose}
-          className="inline-flex items-center rounded px-3 py-1.5 text-gray-500 hover:bg-gray-100 md:px-2 md:py-0.5"
-        >
-          <XIcon className="h-4 w-4" />
-        </button>
+    <div data-detail className={bare === true ? 'detail' : 'card detail'}>
+      <div className="detail__head">
+        <h2 className="detail__title">{t('detail.title')}</h2>
+        <div className="detail__actions">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={t('detail.close')}
+            className="btn btn--icon"
+          >
+            <XIcon className="icon" />
+          </button>
+        </div>
       </div>
 
-      {error !== null && <div className="mt-2 text-xs text-red-700">{t('detail.error', { message: error })}</div>}
+      {error !== null && (
+        <div className="notice notice--danger" role="alert">
+          {t('detail.error', { message: error })}
+        </div>
+      )}
 
-      <div className="mt-3 flex gap-1 border-b border-gray-200">
-        {(
-          [
-            ['operation', t('detail.tabOperation')],
-            ['info', t('detail.tabInfo')],
-            ['reminders', t('detail.tabReminders')],
-          ] as const
-        ).map(([id, label]) => (
+      <div className="segmented detail__tabs" data-count={detailTabs.length} data-active={tabIndex} role="tablist">
+        <span className="segmented__thumb" aria-hidden="true" />
+        {detailTabs.map(({ id, label }, index) => (
           <button
             key={id}
             type="button"
             role="tab"
-            aria-selected={tab === id}
+            aria-selected={index === tabIndex}
             onClick={() => setTab(id)}
             data-testid={`detail-tab-${id}`}
-            className={`-mb-px rounded-t border-b-2 px-3 py-1.5 text-xs ${
-              tab === id
-                ? 'border-blue-600 text-blue-700'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
+            className="segmented__item detail__tab"
           >
             {label}
           </button>
@@ -233,99 +236,89 @@ export function NodeDetailPanel(props: {
       </div>
 
       {tab === 'operation' && (
-        <div className="mt-4 space-y-3">
-          <div className="flex flex-wrap gap-2">
+        <div className="detail__section">
+          <div className="detail__actions">
             <button
               type="button"
               onClick={() => run(onToggleComplete)}
               data-testid="detail-complete"
-              className="inline-flex h-8 items-center gap-1.5 rounded bg-green-600 px-2 py-2 text-white hover:bg-green-700 md:py-1"
+              className="btn btn--sm btn--primary"
             >
-              <CheckIcon className="h-4 w-4" />
+              <CheckIcon className="icon icon--sm" />
               {node.status ? t('detail.uncomplete') : t('detail.complete')}
             </button>
             <button
               type="button"
               onClick={onRemove}
               data-testid="detail-remove"
-              className="inline-flex h-8 items-center gap-1.5 rounded bg-red-600 px-2 py-2 text-white hover:bg-red-700 md:py-1"
+              className="btn btn--sm btn--danger"
             >
-              <TrashIcon className="h-4 w-4" />
+              <TrashIcon className="icon icon--sm" />
               {t('detail.remove')}
             </button>
           </div>
 
-          <div>
-            <label className="flex items-center gap-1.5 text-sm font-semibold text-blue-600">
-              <PlusIcon className="h-4 w-4" />
-              {t('detail.addChild')}
-            </label>
-            <div className="mt-1 flex flex-wrap gap-2">
-              <input
-                value={childName}
-                onChange={(e) => setChildName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.nativeEvent.isComposing) onSubmitAddChild();
-                }}
-                placeholder={t('detail.name')}
-                data-testid="detail-child-name"
-                className="w-full rounded border border-gray-300 px-2 py-1 sm:w-auto sm:flex-1"
-              />
-              <input
-                value={childWeight}
-                onChange={(e) => setChildWeight(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.nativeEvent.isComposing) onSubmitAddChild();
-                }}
-                placeholder={t('detail.newWeight')}
-                data-testid="detail-child-weight"
-                className="w-24 rounded border border-gray-300 px-2 py-1 sm:w-28"
-              />
-              <button
-                type="button"
-                onClick={onSubmitAddChild}
-                data-testid="detail-child-apply"
-                className="rounded border border-gray-400 bg-gray-100 px-2 py-2 font-medium text-gray-700 hover:bg-gray-200 md:py-1"
-              >
-                {t('detail.apply')}
-              </button>
+          <div className="form">
+            <div className="field">
+              <span className="field__label">{t('detail.addChild')}</span>
+              <div className="form__row items-center">
+                <input
+                  value={childName}
+                  onChange={(e) => setChildName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.nativeEvent.isComposing) onSubmitAddChild();
+                  }}
+                  placeholder={t('detail.name')}
+                  data-testid="detail-child-name"
+                  className="input flex-1 min-w-0"
+                />
+                <input
+                  value={childWeight}
+                  onChange={(e) => setChildWeight(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.nativeEvent.isComposing) onSubmitAddChild();
+                  }}
+                  placeholder={t('detail.newWeight')}
+                  data-testid="detail-child-weight"
+                  className="input w-40"
+                />
+              </div>
+              <div className="form__actions">
+                <button type="button" onClick={onSubmitAddChild} data-testid="detail-child-apply" className="btn btn--sm">
+                  {t('detail.apply')}
+                </button>
+              </div>
             </div>
-          </div>
 
-          <div>
-            <label className="flex items-center gap-1.5 text-sm font-semibold text-blue-600">
-              <NoteIcon className="h-4 w-4" />
-              {t('detail.note')}
-            </label>
-            <textarea
-              value={noteValue}
-              onChange={(e) => setNoteValue(e.target.value)}
-              onKeyDown={(e) => {
-                if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !e.nativeEvent.isComposing) {
-                  run(() => client.setNote(node.id, noteValue));
-                }
-              }}
-              placeholder={t('detail.notePlaceholder')}
-              data-testid="detail-note"
-              rows={3}
-              className="mt-1 w-full rounded border border-gray-300 px-2 py-1"
-            />
-            <button
-              type="button"
-              onClick={() => run(() => client.setNote(node.id, noteValue))}
-              data-testid="detail-note-save"
-              className="mt-1 rounded border border-gray-400 bg-gray-100 px-2 py-2 font-medium text-gray-700 hover:bg-gray-200 md:py-1"
-            >
-              {t('detail.saveNote')}
-            </button>
-          </div>
+            <div className="field">
+              <span className="field__label">{t('detail.note')}</span>
+              <textarea
+                value={noteValue}
+                onChange={(e) => setNoteValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                    run(() => client.setNote(node.id, noteValue));
+                  }
+                }}
+                placeholder={t('detail.notePlaceholder')}
+                data-testid="detail-note"
+                rows={3}
+                className="textarea"
+              />
+              <div className="form__actions">
+                <button
+                  type="button"
+                  onClick={() => run(() => client.setNote(node.id, noteValue))}
+                  data-testid="detail-note-save"
+                  className="btn btn--sm"
+                >
+                  {t('detail.saveNote')}
+                </button>
+              </div>
+            </div>
 
-          <div>
-            <label className="flex items-center gap-1.5 text-sm font-semibold text-blue-600">
-              <ClockIcon className="h-4 w-4" />
-              {t('detail.deadline')}
-            </label>
-            <div className="mt-1 flex flex-wrap gap-2">
+            <div className="field">
+              <span className="field__label">{t('detail.deadline')}</span>
               <input
                 type="datetime-local"
                 step="1"
@@ -335,38 +328,35 @@ export function NodeDetailPanel(props: {
                   if (e.key === 'Enter' && !e.nativeEvent.isComposing) onSubmitDeadline();
                 }}
                 data-testid="detail-deadline"
-                className="rounded border border-gray-300 px-2 py-1"
+                className="input"
               />
-              <button
-                type="button"
-                onClick={onSubmitDeadline}
-                data-testid="detail-deadline-save"
-                className="rounded border border-gray-400 bg-gray-100 px-2 py-2 font-medium text-gray-700 hover:bg-gray-200 md:py-1"
-              >
-                {t('detail.saveDeadline')}
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  run(() => {
-                    applyDeadline(null);
-                    setDeadlineValue('');
-                  })
-                }
-                data-testid="detail-deadline-clear"
-                className="rounded border border-gray-400 bg-gray-100 px-2 py-2 font-medium hover:bg-gray-200 md:py-1"
-              >
-                {t('detail.clearDeadline')}
-              </button>
+              <div className="form__actions">
+                <button
+                  type="button"
+                  onClick={onSubmitDeadline}
+                  data-testid="detail-deadline-save"
+                  className="btn btn--sm"
+                >
+                  {t('detail.saveDeadline')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    run(() => {
+                      applyDeadline(null);
+                      setDeadlineValue('');
+                    })
+                  }
+                  data-testid="detail-deadline-clear"
+                  className="btn btn--sm"
+                >
+                  {t('detail.clearDeadline')}
+                </button>
+              </div>
             </div>
-          </div>
 
-          <div>
-            <label className="flex items-center gap-1.5 text-sm font-semibold text-blue-600">
-              <PencilIcon className="h-4 w-4" />
-              {t('detail.rename')}
-            </label>
-            <div className="mt-1 flex flex-wrap gap-2">
+            <div className="field">
+              <span className="field__label">{t('detail.rename')}</span>
               <input
                 value={renameValue}
                 onChange={(e) => setRenameValue(e.target.value)}
@@ -374,125 +364,109 @@ export function NodeDetailPanel(props: {
                   if (e.key === 'Enter' && !e.nativeEvent.isComposing) onSubmitRename();
                 }}
                 data-testid="detail-rename-input"
-                className="w-full rounded border border-gray-300 px-2 py-1 sm:w-auto sm:flex-1"
+                className="input"
               />
-              <button
-                type="button"
-                onClick={onSubmitRename}
-                data-testid="detail-rename-apply"
-                className="rounded border border-gray-400 bg-gray-100 px-2 py-2 font-medium text-gray-700 hover:bg-gray-200 md:py-1"
-              >
-                {t('detail.apply')}
-              </button>
+              <div className="form__actions">
+                <button type="button" onClick={onSubmitRename} data-testid="detail-rename-apply" className="btn btn--sm">
+                  {t('detail.apply')}
+                </button>
+              </div>
             </div>
-          </div>
 
-          <div>
-            <label className="flex items-center gap-1.5 text-sm font-semibold text-blue-600">
-              <MoveIcon className="h-4 w-4" />
-              {t('detail.moveTo')}
-            </label>
-            <div className="mt-1 flex flex-wrap gap-2">
-              {parentSelect(moveTarget, setMoveTarget, moveOptions)}
-              <input
-                value={moveWeight}
-                onChange={(e) => setMoveWeight(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.nativeEvent.isComposing) onSubmitMove();
-                }}
-                placeholder={t('detail.newWeight')}
-                className="w-24 rounded border border-gray-300 px-2 py-1 sm:w-28"
-              />
-              <button
-                type="button"
-                onClick={onSubmitMove}
-                className="rounded border border-gray-400 bg-gray-100 px-2 py-2 font-medium text-gray-700 hover:bg-gray-200 md:py-1"
-              >
-                {t('detail.apply')}
-              </button>
+            <div className="field">
+              <span className="field__label">{t('detail.moveTo')}</span>
+              <div className="form__row items-center">
+                {parentSelect(moveTarget, setMoveTarget, moveOptions)}
+                <input
+                  value={moveWeight}
+                  onChange={(e) => setMoveWeight(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.nativeEvent.isComposing) onSubmitMove();
+                  }}
+                  placeholder={t('detail.newWeight')}
+                  className="input w-40"
+                />
+              </div>
+              <div className="form__actions">
+                <button type="button" onClick={onSubmitMove} className="btn btn--sm">
+                  {t('detail.apply')}
+                </button>
+              </div>
             </div>
-          </div>
 
-          <div>
-            <label className="flex items-center gap-1.5 text-sm font-semibold text-blue-600">
-              <CopyIcon className="h-4 w-4" />
-              {t('detail.copyTo')}
-            </label>
-            <div className="mt-1 flex flex-wrap gap-2">
-              {parentSelect(copyTarget, setCopyTarget, flat)}
-              <input
-                value={copyWeight}
-                onChange={(e) => setCopyWeight(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.nativeEvent.isComposing) onSubmitCopy();
-                }}
-                placeholder={t('detail.newWeight')}
-                className="w-24 rounded border border-gray-300 px-2 py-1 sm:w-28"
-              />
-              <button
-                type="button"
-                onClick={onSubmitCopy}
-                className="rounded border border-gray-400 bg-gray-100 px-2 py-2 font-medium text-gray-700 hover:bg-gray-200 md:py-1"
-              >
-                {t('detail.apply')}
-              </button>
+            <div className="field">
+              <span className="field__label">{t('detail.copyTo')}</span>
+              <div className="form__row items-center">
+                {parentSelect(copyTarget, setCopyTarget, flat)}
+                <input
+                  value={copyWeight}
+                  onChange={(e) => setCopyWeight(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.nativeEvent.isComposing) onSubmitCopy();
+                  }}
+                  placeholder={t('detail.newWeight')}
+                  className="input w-40"
+                />
+              </div>
+              <p className="tiny muted">{t('detail.copyNote')}</p>
+              <div className="form__actions">
+                <button type="button" onClick={onSubmitCopy} className="btn btn--sm">
+                  {t('detail.apply')}
+                </button>
+              </div>
             </div>
-            <p className="mt-1 text-xs text-gray-500">{t('detail.copyNote')}</p>
           </div>
         </div>
       )}
 
       {tab === 'info' && (
-        <dl className="mt-4 space-y-1 text-xs">
-          <div className="flex gap-2">
-            <dt className="w-16 text-gray-500">{t('detail.name')}</dt>
-            <dd className="font-mono">{node.name}</dd>
-          </div>
-          <div className="flex gap-2">
-            <dt className="w-16 text-gray-500">{t('detail.id')}</dt>
-            <dd className="font-mono" data-testid="detail-id">{node.id}</dd>
-          </div>
-          <div className="flex gap-2">
-            <dt className="w-16 text-gray-500">{t('detail.weight')}</dt>
-            <dd className="font-mono">{node.weight}</dd>
-          </div>
-          <div className="flex gap-2">
-            <dt className="w-16 text-gray-500">{t('detail.status')}</dt>
-            <dd className={node.status ? 'text-green-700' : 'text-yellow-700'}>
+        <dl className="facts">
+          <dt className="fact__key">{t('detail.name')}</dt>
+          <dd className="fact__value">{node.name}</dd>
+          <dt className="fact__key">{t('detail.id')}</dt>
+          <dd className="fact__value mono" data-testid="detail-id">
+            {node.id}
+          </dd>
+          <dt className="fact__key">{t('detail.weight')}</dt>
+          <dd className="fact__value mono">{node.weight}</dd>
+          <dt className="fact__key">{t('detail.status')}</dt>
+          <dd className="fact__value">
+            <span className={node.status ? 'pill pill--success' : 'pill'}>
               {node.status ? t('detail.completed') : t('detail.uncompleted')}
-            </dd>
-          </div>
-          <div className="flex gap-2">
-            <dt className="w-16 text-gray-500">{t('detail.createdAt')}</dt>
-            <dd className="font-mono" data-testid="detail-created">
-              {node.createdAt === 0 ? t('detail.noDeadline') : formatLocalDateTime(node.createdAt)}
-            </dd>
-          </div>
-          <div className="flex gap-2">
-            <dt className="w-16 text-gray-500">{t('detail.deadline')}</dt>
-            <dd className="font-mono" data-testid="detail-deadline-value">
-              {node.deadline !== undefined ? formatLocalDateTime(node.deadline) : t('detail.noDeadline')}
-            </dd>
-          </div>
+            </span>
+          </dd>
+          <dt className="fact__key">{t('detail.createdAt')}</dt>
+          <dd className="fact__value mono" data-testid="detail-created">
+            {node.createdAt === 0 ? t('detail.noDeadline') : formatLocalDateTime(node.createdAt)}
+          </dd>
+          <dt className="fact__key">{t('detail.deadline')}</dt>
+          <dd className="fact__value mono" data-testid="detail-deadline-value">
+            {node.deadline !== undefined ? formatLocalDateTime(node.deadline) : t('detail.noDeadline')}
+          </dd>
         </dl>
       )}
 
       {tab === 'reminders' && (
-        <div className="mt-4">
-          {reminders.length === 0 && <p className="mt-1 text-xs text-gray-500">{t('detail.noReminders')}</p>}
-          <ul className="mt-2 space-y-2">
-            {reminders.map((r) => (
-              <ReminderRow
-                key={r.id}
-                reminder={r}
-                client={client}
-                editing={editingRmdId === r.id}
-                onStartEdit={() => setEditingRmdId(r.id)}
-                onCancelEdit={() => setEditingRmdId(null)}
-                onError={setError}
-              />
-            ))}
-          </ul>
+        <div className="detail__section">
+          {reminders.length === 0 ? (
+            <p className="small muted">{t('detail.noReminders')}</p>
+          ) : (
+            <div className="reminder-box">
+              <ul className="reminder-list">
+                {reminders.map((r) => (
+                  <ReminderRow
+                    key={r.id}
+                    reminder={r}
+                    client={client}
+                    editing={editingRmdId === r.id}
+                    onStartEdit={() => setEditingRmdId(r.id)}
+                    onCancelEdit={() => setEditingRmdId(null)}
+                    onError={setError}
+                  />
+                ))}
+              </ul>
+            </div>
+          )}
           {editingRmdId === null && (
             <ReminderForm
               client={client}
@@ -536,62 +510,58 @@ function RootPanel({
   };
 
   return (
-    <div
-      data-detail
-      className={`${bare === true ? '' : 'rounded border border-gray-300 bg-white '}p-4 text-sm`}
-    >
-      <div
-        className={`flex items-start justify-between ${
-          bare === true ? 'sticky top-0 z-10 -mx-4 mb-1 bg-white px-4 py-1' : ''
-        }`}
-      >
-        <h2 className="font-semibold">{t('detail.rootTitle')}</h2>
-        <button
-          type="button"
-          onClick={onClose}
-          className="inline-flex items-center rounded px-3 py-1.5 text-gray-500 hover:bg-gray-100 md:px-2 md:py-0.5"
-        >
-          <XIcon className="h-4 w-4" />
-        </button>
-      </div>
-      <div className="mt-3">
-        <label className="flex items-center gap-1.5 text-sm font-semibold text-blue-600">
-          <PlusIcon className="h-4 w-4" />
-          {t('detail.addChild')}
-        </label>
-        <div className="mt-1 flex flex-wrap gap-2">
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.nativeEvent.isComposing) submit();
-            }}
-            placeholder={t('detail.name')}
-            data-testid="detail-child-name"
-            className="w-full rounded border border-gray-300 px-2 py-1 sm:w-auto sm:flex-1"
-          />
-          <input
-            value={weight}
-            onChange={(e) => setWeight(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.nativeEvent.isComposing) submit();
-            }}
-            placeholder={t('detail.newWeight')}
-            data-testid="detail-child-weight"
-            className="w-24 rounded border border-gray-300 px-2 py-1 sm:w-28"
-          />
+    <div data-detail className={bare === true ? 'detail' : 'card detail'}>
+      <div className="detail__head">
+        <h2 className="detail__title">{t('detail.rootTitle')}</h2>
+        <div className="detail__actions">
           <button
             type="button"
-            onClick={submit}
-            data-testid="detail-child-apply"
-            className="rounded border border-gray-400 bg-gray-100 px-2 py-2 font-medium text-gray-700 hover:bg-gray-200 md:py-1"
+            onClick={onClose}
+            aria-label={t('detail.close')}
+            className="btn btn--icon"
           >
-            {t('detail.apply')}
+            <XIcon className="icon" />
           </button>
         </div>
-        {error !== null && (
-          <div className="mt-1 text-xs text-red-700">{t('detail.error', { message: error })}</div>
-        )}
+      </div>
+      <div className="detail__section">
+        <div className="form">
+          <div className="field">
+            <span className="field__label">{t('detail.addChild')}</span>
+            <div className="form__row items-center">
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.nativeEvent.isComposing) submit();
+                }}
+                placeholder={t('detail.name')}
+                data-testid="detail-child-name"
+                className="input flex-1 min-w-0"
+              />
+              <input
+                value={weight}
+                onChange={(e) => setWeight(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.nativeEvent.isComposing) submit();
+                }}
+                placeholder={t('detail.newWeight')}
+                data-testid="detail-child-weight"
+                className="input w-40"
+              />
+            </div>
+            <div className="form__actions">
+              <button type="button" onClick={submit} data-testid="detail-child-apply" className="btn btn--sm">
+                {t('detail.apply')}
+              </button>
+            </div>
+          </div>
+          {error !== null && (
+            <div className="notice notice--danger" role="alert">
+              {t('detail.error', { message: error })}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -630,28 +600,22 @@ function ReminderRow(props: {
   }
 
   return (
-    <li className="flex items-center gap-2 text-xs">
-      <input
-        type="checkbox"
-        checked={reminder.active}
-        onChange={(e) => run(() => client.editReminder(reminder.id, { active: e.target.checked }))}
-        title={t('detail.active')}
-      />
-      <span className={`min-w-0 flex-1 break-all font-mono ${reminder.active ? '' : 'text-gray-400'}`}>
+    <li className="reminder-item">
+      <label className="check" title={t('detail.active')}>
+        <input
+          type="checkbox"
+          aria-label={t('detail.active')}
+          checked={reminder.active}
+          onChange={(e) => run(() => client.editReminder(reminder.id, { active: e.target.checked }))}
+        />
+      </label>
+      <span className={`mono small min-w-0 flex-1 break-all ${reminder.active ? '' : 'muted'}`}>
         {formatReminder(reminder)}
       </span>
-      <button
-        type="button"
-        onClick={onStartEdit}
-        className="rounded px-2 py-1.5 text-blue-700 hover:bg-blue-50 md:px-1.5 md:py-0.5"
-      >
+      <button type="button" onClick={onStartEdit} className="btn btn--xs">
         {t('detail.edit')}
       </button>
-      <button
-        type="button"
-        onClick={() => run(() => client.removeReminder(reminder.id))}
-        className="rounded px-2 py-1.5 text-red-700 hover:bg-red-50 md:px-1.5 md:py-0.5"
-      >
+      <button type="button" onClick={() => run(() => client.removeReminder(reminder.id))} className="btn btn--xs btn--danger">
         {t('detail.delete')}
       </button>
     </li>
@@ -715,77 +679,65 @@ function ReminderForm(props: {
     setRepeat(p?.ms === null || p === undefined ? '' : String(p.ms));
   };
 
+  const repeatOptions = REPEAT_PRESETS.map((p) => ({ value: p.key, label: t(p.key) }));
+
   return (
-    <div className="rounded border border-blue-200 bg-blue-50 p-2 text-xs">
-      <div className="flex flex-col gap-1.5">
+    <div className="form">
+      <input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.nativeEvent.isComposing) submit();
+        }}
+        placeholder={t('detail.reminderName')}
+        data-testid="reminder-name"
+        className="input"
+      />
+      <input
+        type="datetime-local"
+        step="1"
+        value={deadline}
+        onChange={(e) => setDeadline(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.nativeEvent.isComposing) submit();
+        }}
+        data-testid="reminder-deadline"
+        className="input"
+      />
+      <div className="form__row items-center">
         <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
+          value={repeat}
+          onChange={(e) => setRepeat(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.nativeEvent.isComposing) submit();
           }}
-          placeholder={t('detail.reminderName')}
-          data-testid="reminder-name"
-          className="rounded border border-gray-300 px-2 py-1"
+          placeholder={t('detail.repeatMs')}
+          data-testid="reminder-repeat"
+          className="input flex-1 min-w-0"
         />
-        <input
-          type="datetime-local"
-          step="1"
-          value={deadline}
-          onChange={(e) => setDeadline(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.nativeEvent.isComposing) submit();
-          }}
-          data-testid="reminder-deadline"
-          className="rounded border border-gray-300 px-2 py-1"
+        <ExpandSelect
+          value={preset}
+          options={repeatOptions}
+          onChange={onPreset}
+          label={t('rule.freq')}
+          testId="detail-repeat-preset"
+          className="w-40"
         />
-        <div className="flex gap-2">
-          <input
-            value={repeat}
-            onChange={(e) => setRepeat(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.nativeEvent.isComposing) submit();
-            }}
-            placeholder={t('detail.repeatMs')}
-            data-testid="reminder-repeat"
-            className="w-full rounded border border-gray-300 px-2 py-1"
-          />
-          <select
-            value={preset}
-            onChange={(e) => onPreset(e.target.value)}
-            className="rounded border border-gray-300 px-1 py-1"
-          >
-            {REPEAT_PRESETS.map((p) => (
-              <option key={p.key} value={p.key}>
-                {t(p.key)}
-              </option>
-            ))}
-          </select>
-        </div>
-        {isEdit && (
-          <label className="flex items-center gap-1.5">
-            <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
-            {t('detail.active')}
-          </label>
-        )}
-        {error !== null && <div className="text-red-700">{error}</div>}
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={submit}
-            data-testid="reminder-save"
-            className="rounded border border-gray-400 bg-gray-100 px-2 py-2 font-medium text-gray-700 hover:bg-gray-200 md:py-1"
-          >
-            {t('detail.save')}
-          </button>
-          <button
-            type="button"
-            onClick={onDone}
-            className="rounded border border-gray-400 bg-gray-100 px-2 py-2 font-medium hover:bg-gray-200 md:py-1"
-          >
-            {t('detail.cancel')}
-          </button>
-        </div>
+      </div>
+      {isEdit && (
+        <label className="check">
+          <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
+          <span>{t('detail.active')}</span>
+        </label>
+      )}
+      {error !== null && <p className="form__error">{error}</p>}
+      <div className="form__actions">
+        <button type="button" onClick={submit} data-testid="reminder-save" className="btn btn--sm btn--primary">
+          {t('detail.save')}
+        </button>
+        <button type="button" onClick={onDone} className="btn btn--sm">
+          {t('detail.cancel')}
+        </button>
       </div>
     </div>
   );

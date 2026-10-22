@@ -62,83 +62,92 @@ export function RepairPage(props: { client: WorktreeClient }) {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 p-4 text-gray-900 md:p-6">
-      <div className="mx-auto max-w-3xl">
-        <h1 className="text-xl font-bold">{t('repair.title')}</h1>
-        <p className="mt-1 text-sm text-gray-600">{t('repair.explanation')}</p>
+    <div className="standalone">
+      <header className="page-head">
+        <div className="page-head__inner">
+          <h1 className="page-title">{t('repair.title')}</h1>
+        </div>
+      </header>
 
-        {loadError !== null && (
-          <div className="mt-4 rounded border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
-            <p>{t('repair.loadError', { message: loadError })}</p>
-            <button
-              type="button"
-              onClick={() => void plan()}
-              className="mt-2 rounded bg-red-700 px-3 py-1.5 text-sm text-white hover:bg-red-800"
-            >
-              {t('repair.retry')}
-            </button>
-          </div>
-        )}
+      <div className="page-body page-body--narrow">
+        <div className="stack stack--lg">
+          <p className="page-lead">{t('repair.explanation')}</p>
 
-        {drops === null && loadError === null && (
-          <p className="mt-4 text-sm text-gray-500">{t('repair.loading')}</p>
-        )}
-
-        {drops !== null && drops.length === 0 && (
-          <div className="mt-4 rounded border border-gray-300 bg-white px-4 py-3 text-sm">
-            <p>{t('repair.nothing')}</p>
-            <p className="mt-1 text-gray-600">{t('repair.adoptHint')}</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={applying}
-                onClick={() => void adopt()}
-                data-testid="repair-adopt"
-                className="rounded bg-amber-600 px-3 py-1.5 text-sm text-white hover:bg-amber-700 disabled:opacity-40"
-              >
-                {applying ? t('repair.adopting') : t('repair.adopt')}
-              </button>
-              <button
-                type="button"
-                onClick={() => void plan()}
-                className="rounded border border-gray-400 px-3 py-1.5 text-sm hover:bg-gray-50"
-              >
-                {t('repair.retry')}
-              </button>
+          {loadError !== null && (
+            <div className="notice notice--danger">
+              <p>{t('repair.loadError', { message: loadError })}</p>
+              <div className="settings__actions">
+                <button type="button" onClick={() => void plan()} className="btn btn--sm">
+                  {t('repair.retry')}
+                </button>
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {drops !== null && drops.length > 0 && (
-          <>
-            <div className="mt-4 rounded border border-gray-300 bg-white p-4">
-              <h2 className="font-semibold">{t('repair.entries', { n: drops.length })}</h2>
-              <ul className="mt-2 flex flex-col gap-2">
-                {drops.map((drop) => (
-                  <li key={drop.entry.id} className="rounded bg-gray-50 px-3 py-2">
-                    <p className="text-sm font-medium">{drop.description}</p>
-                    <p className="mt-0.5 font-mono text-xs text-gray-500">
-                      {drop.entry.id} — {drop.reason}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-3 text-sm text-amber-800">{t('repair.warning')}</p>
-            </div>
+          {drops === null && loadError === null && (
+            <p className="muted small">{t('repair.loading')}</p>
+          )}
 
-            <button
-              type="button"
-              disabled={applying}
-              onClick={() => void apply()}
-              data-testid="repair-apply"
-              className="mt-4 w-full rounded bg-amber-600 px-4 py-2.5 text-white hover:bg-amber-700 disabled:opacity-40 sm:w-auto sm:py-2"
-            >
-              {applying ? t('repair.applying') : t('repair.apply')}
-            </button>
-          </>
-        )}
+          {drops !== null && drops.length === 0 && (
+            <section className="card">
+              <div className="stack">
+                <div className="notice notice--success">{t('repair.nothing')}</div>
+                <p className="setting__hint">{t('repair.adoptHint')}</p>
+                <div className="settings__actions">
+                  <button
+                    type="button"
+                    disabled={applying}
+                    onClick={() => void adopt()}
+                    data-testid="repair-adopt"
+                    className="btn btn--primary btn--sm"
+                  >
+                    {applying ? t('repair.adopting') : t('repair.adopt')}
+                  </button>
+                  <button type="button" onClick={() => void plan()} className="btn btn--sm">
+                    {t('repair.retry')}
+                  </button>
+                </div>
+              </div>
+            </section>
+          )}
 
-        {applyError !== null && <div className="mt-3 text-sm text-red-700">{applyError}</div>}
+          {drops !== null && drops.length > 0 && (
+            <>
+              <section className="card">
+                <div className="section-head">
+                  <h2 className="section-title">{t('repair.entries', { n: drops.length })}</h2>
+                </div>
+                <div className="stack">
+                  <ul className="stack">
+                    {drops.map((drop) => (
+                      <li key={drop.entry.id} className="card--quiet">
+                        <p>{drop.description}</p>
+                        <p className="mono tiny muted">
+                          {drop.entry.id} — {drop.reason}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="notice notice--danger">{t('repair.warning')}</p>
+                </div>
+              </section>
+
+              <div className="settings__actions">
+                <button
+                  type="button"
+                  disabled={applying}
+                  onClick={() => void apply()}
+                  data-testid="repair-apply"
+                  className="btn btn--danger w-full sm:w-auto"
+                >
+                  {applying ? t('repair.applying') : t('repair.apply')}
+                </button>
+              </div>
+            </>
+          )}
+
+          {applyError !== null && <div className="notice notice--danger">{applyError}</div>}
+        </div>
       </div>
     </div>
   );

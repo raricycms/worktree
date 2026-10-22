@@ -1,0 +1,105 @@
+/* Generated from the Google Fonts API: the latin subset of each design font.
+   Re-run `frontend/web/scripts/fetch-fonts.ps1` to refresh.
+   Raricy Numeric at the end is not fetched: it is a local numeric derivative
+   of JetBrains Mono, see public/fonts/raricy-numeric/OFL.txt. */
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/outfit-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/outfit-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/outfit-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/jetbrains-mono-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/jetbrains-mono-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Kumbh Sans';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/kumbh-sans-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Kumbh Sans';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/kumbh-sans-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Kumbh Sans';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/kumbh-sans-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* Data numerals. Digits, separators and math signs keep the JetBrains Mono
+   metrics, except 0, which takes the capital O outline: an id, count or
+   timestamp can never be misread as a letter. Everything outside this range
+   falls through to the monospace stack in --font-data. */
+@font-face {
+  font-family: 'Raricy Numeric';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/raricy-numeric/RaricyNumeric-Regular.woff2') format('woff2');
+  unicode-range: U+0023-0025, U+002B-003A, U+00D7, U+2030, U+2212;
+}
+@font-face {
+  font-family: 'Raricy Numeric';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/raricy-numeric/RaricyNumeric-Bold.woff2') format('woff2');
+  unicode-range: U+0023-0025, U+002B-003A, U+00D7, U+2030, U+2212;
+}
+@font-face {
+  font-family: 'Raricy Numeric';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/raricy-numeric/RaricyNumeric-Italic.woff2') format('woff2');
+  unicode-range: U+0023-0025, U+002B-003A, U+00D7, U+2030, U+2212;
+}
+@font-face {
+  font-family: 'Raricy Numeric';
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/raricy-numeric/RaricyNumeric-BoldItalic.woff2') format('woff2');
+  unicode-range: U+0023-0025, U+002B-003A, U+00D7, U+2030, U+2212;
+}

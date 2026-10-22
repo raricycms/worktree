@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react';
+import type { ReactElement } from 'react';
 import { normalizeCapturePath } from '@worktree/core';
 import type { Node } from '@worktree/core';
 import type { WorktreeClient } from '@worktree/client';
+import { ExpandSelect } from '../components/ExpandSelect';
 import { LOCAL_USER, listLoggedInUsers, loadToken } from '../config';
-import type { AppConfig } from '../config';
+import type { AppConfig, FilterDisplayMode } from '../config';
 import { authRequest } from '../auth';
 import { LANGS, useI18n } from '../i18n';
 import { disablePush, enablePush, getPushStatus } from '../push';
 import type { PushStatus } from '../push';
+import type { ThemePref } from '../theme';
 import { flattenTree } from '../tree-utils';
 
 function validServerUrl(value: string): boolean {
@@ -128,284 +131,333 @@ export function SettingsPage(props: {
 
   const nodeCount = flattenTree(tree).length - 1;
 
+  const userOptions = [
+    { value: LOCAL_USER, label: t('settings.localUser') },
+    ...listLoggedInUsers(config.serverUrl).map((name) => ({ value: name, label: name })),
+  ];
+
+  const dayOptions = [3, 4, 5, 6, 7, 8, 9].map((days) => ({ value: String(days), label: String(days) }));
+
+  const langOptions = LANGS.map((code) => ({ value: code, label: t(`language.${code}`) }));
+
+  const filterOptions: SliderOption<FilterDisplayMode>[] = [
+    { value: 'hide', label: t('filter.hide'), testId: 'settings-filter-mode-hide' },
+    { value: 'highlight', label: t('filter.highlight'), testId: 'settings-filter-mode-highlight' },
+  ];
+
+  const themeOptions: SliderOption<ThemePref>[] = [
+    { value: 'system', label: t('settings.themeSystem'), testId: 'settings-theme-system' },
+    { value: 'light', label: t('settings.themeLight'), testId: 'settings-theme-light' },
+    { value: 'dark', label: t('settings.themeDark'), testId: 'settings-theme-dark' },
+  ];
+
   return (
-    <div className="max-w-2xl space-y-4 text-sm">
-      {storedToken !== null && (
-        <>
-          <section className="rounded border border-gray-300 bg-white p-4">
-            <h2 className="font-semibold">{t('settings.account')}</h2>
-            <p className="mt-1 text-gray-600">
-              {t('settings.loggedIn', {
-                user: config.user,
-                label: storedToken.label ?? t('settings.noLabel'),
-              })}
-            </p>
-          </section>
-
-          <section className="rounded border border-gray-300 bg-white p-4">
-            <h2 className="font-semibold">{t('settings.notifications.title')}</h2>
-            <p className="mt-1 text-gray-600">{t('settings.notifications.hint')}</p>
-            <div className="mt-2">
-              {pushStatus === 'checking' && <span className="text-gray-500">…</span>}
-              {pushStatus === 'unsupported' && (
-                <p className="text-gray-600">{t('settings.notifications.unsupported')}</p>
-              )}
-              {pushStatus === 'serverDisabled' && (
-                <p className="text-gray-600">{t('settings.notifications.serverDisabled')}</p>
-              )}
-              {pushStatus === 'denied' && (
-                <p className="text-red-700">{t('settings.notifications.denied')}</p>
-              )}
-              {pushStatus === 'enabled' && (
-                <p className="text-gray-600">{t('settings.notifications.enabled')}</p>
-              )}
-              {pushStatus === 'disabled' && (
-                <p className="text-gray-600">{t('settings.notifications.disabled')}</p>
-              )}
-            </div>
-            {(pushStatus === 'disabled' || pushStatus === 'denied') && (
-              <button
-                type="button"
-                onClick={() => togglePush(true)}
-                disabled={pushBusy}
-                data-testid="settings-push-enable"
-                className="mt-2 rounded bg-blue-600 px-3 py-1 text-white hover:bg-blue-700 disabled:opacity-50"
-              >
-                {t('settings.notifications.enable')}
-              </button>
-            )}
-            {pushStatus === 'enabled' && (
-              <button
-                type="button"
-                onClick={() => togglePush(false)}
-                disabled={pushBusy}
-                data-testid="settings-push-disable"
-                className="mt-2 rounded border border-gray-300 bg-white px-3 py-1 hover:bg-gray-50 disabled:opacity-50"
-              >
-                {t('settings.notifications.disable')}
-              </button>
-            )}
-            {pushError !== null && (
-              <p className="mt-1 text-xs text-red-700" data-testid="settings-push-error">
-                {pushError}
-              </p>
-            )}
-          </section>
-        </>
-      )}
-
-      <section className="rounded border border-gray-300 bg-white p-4">
-        <h2 className="font-semibold">{t('settings.user')}</h2>
-        <p className="mt-1 text-gray-600">{t('settings.currentUser', { user: config.user })}</p>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <select
-            value={config.user}
-            onChange={(e) => updateConfig({ user: e.target.value })}
-            data-testid="settings-user-select"
-            className="w-56 max-w-full rounded border border-gray-300 px-2 py-1"
-          >
-            <option value={LOCAL_USER}>{t('settings.localUser')}</option>
-            {listLoggedInUsers(config.serverUrl).map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            onClick={onLoginOther}
-            data-testid="settings-login-other"
-            className="rounded bg-blue-600 px-3 py-1 text-white hover:bg-blue-700"
-          >
-            {t('settings.loginOther')}
-          </button>
+    <div className="page-wrap">
+      <header className="page-head">
+        <div className="page-head__inner">
+          <h1 className="page-title">{t('tabs.settings')}</h1>
+        </div>
+      </header>
+      <div className="page-body">
+        <div className="settings">
           {storedToken !== null && (
-            <button
-              type="button"
-              onClick={() => void logout()}
-              data-testid="settings-logout"
-              className="rounded border border-red-300 bg-red-50 px-3 py-1 text-red-700 hover:bg-red-100"
-            >
-              {t('settings.logout')}
-            </button>
+            <>
+              <section className="card">
+                <div className="section-head">
+                  <h2 className="section-title">{t('settings.account')}</h2>
+                </div>
+                <p className="setting__hint">
+                  {t('settings.loggedIn', {
+                    user: config.user,
+                    label: storedToken.label ?? t('settings.noLabel'),
+                  })}
+                </p>
+              </section>
+
+              <section className="card">
+                <div className="section-head">
+                  <h2 className="section-title">{t('settings.notifications.title')}</h2>
+                </div>
+                <p className="setting__hint">{t('settings.notifications.hint')}</p>
+                {pushStatus === 'checking' && <span className="muted">…</span>}
+                {pushStatus === 'unsupported' && (
+                  <p className="setting__hint">{t('settings.notifications.unsupported')}</p>
+                )}
+                {pushStatus === 'serverDisabled' && (
+                  <p className="setting__hint">{t('settings.notifications.serverDisabled')}</p>
+                )}
+                {pushStatus === 'denied' && (
+                  <p className="form__error">{t('settings.notifications.denied')}</p>
+                )}
+                {pushStatus === 'enabled' && (
+                  <p className="setting__hint">{t('settings.notifications.enabled')}</p>
+                )}
+                {pushStatus === 'disabled' && (
+                  <p className="setting__hint">{t('settings.notifications.disabled')}</p>
+                )}
+                <div className="settings__actions">
+                  {(pushStatus === 'disabled' || pushStatus === 'denied') && (
+                    <button
+                      type="button"
+                      onClick={() => togglePush(true)}
+                      disabled={pushBusy}
+                      data-testid="settings-push-enable"
+                      className="btn btn--primary btn--sm"
+                    >
+                      {t('settings.notifications.enable')}
+                    </button>
+                  )}
+                  {pushStatus === 'enabled' && (
+                    <button
+                      type="button"
+                      onClick={() => togglePush(false)}
+                      disabled={pushBusy}
+                      data-testid="settings-push-disable"
+                      className="btn btn--sm"
+                    >
+                      {t('settings.notifications.disable')}
+                    </button>
+                  )}
+                </div>
+                {pushError !== null && (
+                  <p className="form__error" data-testid="settings-push-error">
+                    {pushError}
+                  </p>
+                )}
+              </section>
+            </>
           )}
-        </div>
-        <p className="mt-1 text-xs text-gray-500">{t('settings.userNote')}</p>
-      </section>
 
-      <section className="rounded border border-gray-300 bg-white p-4">
-        <h2 className="font-semibold">{t('settings.serverUrl')}</h2>
-        <div className="mt-2 flex gap-2">
-          <input
-            value={serverDraft}
-            onChange={(e) => setServerDraft(e.target.value)}
-            data-testid="settings-server-input"
-            className="w-full rounded border border-gray-300 px-2 py-1 font-mono"
-          />
-          <button
-            type="button"
-            onClick={applyServer}
-            data-testid="settings-apply-server"
-            className="rounded bg-blue-600 px-3 py-1 text-white hover:bg-blue-700"
-          >
-            {t('settings.apply')}
-          </button>
-        </div>
-        <p className="mt-1 text-xs text-gray-500">{t('settings.serverNote')}</p>
-        {serverError !== null && <p className="mt-1 text-xs text-red-700">{serverError}</p>}
-      </section>
+          <section className="card">
+            <div className="section-head">
+              <h2 className="section-title">{t('settings.user')}</h2>
+            </div>
+            <p className="setting__hint">{t('settings.currentUser', { user: config.user })}</p>
+            <div className="setting">
+              <ExpandSelect
+                value={config.user}
+                options={userOptions}
+                onChange={(user) => updateConfig({ user })}
+                label={t('settings.user')}
+                testId="settings-user-select"
+                className="w-56 max-w-full"
+              />
+              <div className="cluster">
+                <button
+                  type="button"
+                  onClick={onLoginOther}
+                  data-testid="settings-login-other"
+                  className="btn btn--primary btn--sm"
+                >
+                  {t('settings.loginOther')}
+                </button>
+                {storedToken !== null && (
+                  <button
+                    type="button"
+                    onClick={() => void logout()}
+                    data-testid="settings-logout"
+                    className="btn btn--danger btn--sm"
+                  >
+                    {t('settings.logout')}
+                  </button>
+                )}
+              </div>
+            </div>
+            <p className="setting__hint">{t('settings.userNote')}</p>
+          </section>
 
-      <section className="rounded border border-gray-300 bg-white p-4">
-        <h2 className="font-semibold">{t('settings.capture')}</h2>
-        <div className="mt-2 flex gap-2">
-          <input
-            value={quickDraft}
-            onChange={(e) => setQuickDraft(e.target.value)}
-            data-testid="settings-quick-path-input"
-            className="w-full rounded border border-gray-300 px-2 py-1 font-mono"
-          />
-          <button
-            type="button"
-            onClick={applyQuickPath}
-            data-testid="settings-apply-quick-path"
-            className="rounded bg-blue-600 px-3 py-1 text-white hover:bg-blue-700"
-          >
-            {t('settings.apply')}
-          </button>
-        </div>
-        <p className="mt-1 text-xs text-gray-500">{t('settings.captureNote')}</p>
-        {quickError !== null && <p className="mt-1 text-xs text-red-700">{quickError}</p>}
-      </section>
+          <section className="card">
+            <div className="section-head">
+              <h2 className="section-title">{t('settings.serverUrl')}</h2>
+            </div>
+            <div className="setting">
+              <input
+                value={serverDraft}
+                onChange={(e) => setServerDraft(e.target.value)}
+                data-testid="settings-server-input"
+                aria-label={t('settings.serverUrl')}
+                className="input input--mono flex-1"
+              />
+              <button
+                type="button"
+                onClick={applyServer}
+                data-testid="settings-apply-server"
+                className="btn btn--primary btn--sm"
+              >
+                {t('settings.apply')}
+              </button>
+            </div>
+            <p className="setting__hint">{t('settings.serverNote')}</p>
+            {serverError !== null && <p className="form__error">{serverError}</p>}
+          </section>
 
-      <section className="rounded border border-gray-300 bg-white p-4">
-        <h2 className="font-semibold">{t('settings.display')}</h2>
-        <div className="mt-2 flex flex-col gap-1.5">
-          <Checkbox
-            checked={config.display.showId}
-            onChange={(v) => updateConfig({ display: { ...config.display, showId: v } })}
-            label={t('settings.showId')}
-            testId="settings-show-id"
-          />
-          <Checkbox
-            checked={config.display.showWeight}
-            onChange={(v) => updateConfig({ display: { ...config.display, showWeight: v } })}
-            label={t('settings.showWeight')}
-          />
-          <Checkbox
-            checked={config.display.showReminders}
-            onChange={(v) => updateConfig({ display: { ...config.display, showReminders: v } })}
-            label={t('settings.showReminders')}
-          />
-          <label className="mt-1 flex items-center gap-2">
-            <span>{t('settings.filterMode')}</span>
-            <select
-              value={config.display.filterMode}
-              onChange={(e) =>
-                updateConfig({
-                  display: { ...config.display, filterMode: e.target.value as 'hide' | 'highlight' },
-                })
-              }
-              data-testid="settings-filter-mode"
-              className="rounded border border-gray-300 px-2 py-1"
-            >
-              <option value="hide">{t('settings.filterHide')}</option>
-              <option value="highlight">{t('settings.filterHighlight')}</option>
-            </select>
-          </label>
-        </div>
-      </section>
+          <section className="card">
+            <div className="section-head">
+              <h2 className="section-title">{t('settings.capture')}</h2>
+            </div>
+            <div className="setting">
+              <input
+                value={quickDraft}
+                onChange={(e) => setQuickDraft(e.target.value)}
+                data-testid="settings-quick-path-input"
+                aria-label={t('settings.capture')}
+                className="input input--mono flex-1"
+              />
+              <button
+                type="button"
+                onClick={applyQuickPath}
+                data-testid="settings-apply-quick-path"
+                className="btn btn--primary btn--sm"
+              >
+                {t('settings.apply')}
+              </button>
+            </div>
+            <p className="setting__hint">{t('settings.captureNote')}</p>
+            {quickError !== null && <p className="form__error">{quickError}</p>}
+          </section>
 
-      <section className="rounded border border-gray-300 bg-white p-4">
-        <h2 className="font-semibold">{t('settings.autoReminder')}</h2>
-        <div className="mt-2 flex flex-col gap-1.5">
-          <Checkbox
-            checked={config.autoReminder.enabled}
-            onChange={(v) => updateConfig({ autoReminder: { ...config.autoReminder, enabled: v } })}
-            label={t('settings.autoReminderEnabled')}
-            testId="settings-auto-reminder-enabled"
-          />
-          <label className="mt-1 flex items-center gap-2">
-            <span>{t('settings.autoReminderPct')}</span>
-            <input
-              type="number"
-              min={1}
-              max={99}
-              value={config.autoReminder.pct}
-              onChange={(e) => {
-                const raw = Number(e.target.value);
-                if (e.target.value === '' || !Number.isFinite(raw)) return;
-                const pct = Math.min(99, Math.max(1, Math.round(raw)));
-                updateConfig({ autoReminder: { ...config.autoReminder, pct } });
-              }}
-              data-testid="settings-auto-reminder-pct"
-              className="w-20 rounded border border-gray-300 px-2 py-1"
+          <section className="card">
+            <div className="section-head">
+              <h2 className="section-title">{t('settings.display')}</h2>
+            </div>
+            <div className="stack">
+              <Checkbox
+                checked={config.display.showId}
+                onChange={(v) => updateConfig({ display: { ...config.display, showId: v } })}
+                label={t('settings.showId')}
+                testId="settings-show-id"
+              />
+              <Checkbox
+                checked={config.display.showWeight}
+                onChange={(v) => updateConfig({ display: { ...config.display, showWeight: v } })}
+                label={t('settings.showWeight')}
+              />
+              <Checkbox
+                checked={config.display.showReminders}
+                onChange={(v) => updateConfig({ display: { ...config.display, showReminders: v } })}
+                label={t('settings.showReminders')}
+              />
+              <div className="field">
+                <span className="field__label">{t('settings.filterMode')}</span>
+                <Slider
+                  label={t('settings.filterMode')}
+                  value={config.display.filterMode}
+                  options={filterOptions}
+                  onChange={(filterMode) =>
+                    updateConfig({ display: { ...config.display, filterMode } })
+                  }
+                />
+              </div>
+            </div>
+          </section>
+
+          <section className="card">
+            <div className="section-head">
+              <h2 className="section-title">{t('settings.theme')}</h2>
+            </div>
+            <Slider
+              label={t('settings.theme')}
+              value={config.theme}
+              options={themeOptions}
+              onChange={(theme) => updateConfig({ theme })}
             />
-          </label>
-          <p className="text-xs text-gray-500">{t('settings.autoReminderHint')}</p>
+          </section>
+
+          <section className="card">
+            <div className="section-head">
+              <h2 className="section-title">{t('settings.autoReminder')}</h2>
+            </div>
+            <div className="stack">
+              <Checkbox
+                checked={config.autoReminder.enabled}
+                onChange={(v) => updateConfig({ autoReminder: { ...config.autoReminder, enabled: v } })}
+                label={t('settings.autoReminderEnabled')}
+                testId="settings-auto-reminder-enabled"
+              />
+              <label className="setting">
+                <span className="setting__label">{t('settings.autoReminderPct')}</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={99}
+                  value={config.autoReminder.pct}
+                  onChange={(e) => {
+                    const raw = Number(e.target.value);
+                    if (e.target.value === '' || !Number.isFinite(raw)) return;
+                    const pct = Math.min(99, Math.max(1, Math.round(raw)));
+                    updateConfig({ autoReminder: { ...config.autoReminder, pct } });
+                  }}
+                  data-testid="settings-auto-reminder-pct"
+                  className="input input--compact w-20"
+                />
+              </label>
+              <p className="setting__hint">{t('settings.autoReminderHint')}</p>
+            </div>
+          </section>
+
+          <section className="card">
+            <div className="section-head">
+              <h2 className="section-title">{t('settings.calendar')}</h2>
+            </div>
+            <div className="setting">
+              <span className="setting__label">{t('settings.calendarDays')}</span>
+              <ExpandSelect
+                value={String(config.calendarDays)}
+                options={dayOptions}
+                onChange={(value) => updateConfig({ calendarDays: Number(value) })}
+                label={t('settings.calendarDays')}
+                testId="settings-calendar-days"
+                className="w-24"
+              />
+            </div>
+          </section>
+
+          <section className="card">
+            <div className="section-head">
+              <h2 className="section-title">{t('settings.language')}</h2>
+            </div>
+            <ExpandSelect
+              value={config.lang}
+              options={langOptions}
+              onChange={(lang) => updateConfig({ lang })}
+              label={t('settings.language')}
+              testId="settings-language"
+              className="w-56 max-w-full"
+            />
+          </section>
+
+          <section className="card">
+            <div className="section-head">
+              <h2 className="section-title">{t('settings.data')}</h2>
+            </div>
+            <div className="setting">
+              <span className="setting__label">{t('stats.nodesHeading')}</span>
+              <span className="setting__value">{nodeCount}</span>
+            </div>
+            <div className="setting">
+              <span className="setting__label">{t('settings.pendingCount')}</span>
+              <span className="setting__value">{client.getPendingCount()}</span>
+            </div>
+            <div className="settings__actions">
+              <button
+                type="button"
+                onClick={clearCache}
+                data-testid="settings-clear-cache"
+                className="btn btn--danger btn--sm"
+              >
+                {t('settings.clearCache')}
+              </button>
+            </div>
+          </section>
         </div>
-      </section>
-
-      <section className="rounded border border-gray-300 bg-white p-4">
-        <h2 className="font-semibold">{t('settings.calendar')}</h2>
-        <label className="mt-2 flex items-center gap-2">
-          <span>{t('settings.calendarDays')}</span>
-          <select
-            value={config.calendarDays}
-            onChange={(e) => updateConfig({ calendarDays: Number(e.target.value) })}
-            data-testid="settings-calendar-days"
-            className="rounded border border-gray-300 px-2 py-1"
-          >
-            {[3, 4, 5, 6, 7, 8, 9].map((d) => (
-              <option key={d} value={d}>{d}</option>
-            ))}
-          </select>
-        </label>
-      </section>
-
-      <section className="rounded border border-gray-300 bg-white p-4">
-        <h2 className="font-semibold">{t('settings.language')}</h2>
-        <select
-          value={config.lang}
-          onChange={(e) => updateConfig({ lang: e.target.value })}
-          data-testid="settings-language"
-          className="mt-2 rounded border border-gray-300 px-2 py-1"
-        >
-          {LANGS.map((code) => (
-            <option key={code} value={code}>
-              {t(`language.${code}`)}
-            </option>
-          ))}
-        </select>
-      </section>
-
-      <section className="rounded border border-gray-300 bg-white p-4">
-        <h2 className="font-semibold">{t('settings.data')}</h2>
-        <dl className="mt-2 flex gap-6 text-gray-600">
-          <div>
-            <dt className="text-xs text-gray-500">{t('stats.nodesHeading')}</dt>
-            <dd className="font-mono">{nodeCount}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-gray-500">{t('settings.pendingCount')}</dt>
-            <dd className="font-mono">{client.getPendingCount()}</dd>
-          </div>
-        </dl>
-        <button
-          type="button"
-          onClick={clearCache}
-          data-testid="settings-clear-cache"
-          className="mt-3 rounded border border-red-300 bg-red-50 px-3 py-1 text-red-700 hover:bg-red-100"
-        >
-          {t('settings.clearCache')}
-        </button>
-      </section>
+      </div>
     </div>
   );
 }
 
 function Checkbox(props: { checked: boolean; onChange: (v: boolean) => void; label: string; testId?: string }) {
   return (
-    <label className="flex items-center gap-2">
+    <label className="check">
       <input
         type="checkbox"
         checked={props.checked}
@@ -415,4 +467,51 @@ function Checkbox(props: { checked: boolean; onChange: (v: boolean) => void; lab
       {props.label}
     </label>
   );
+}
+
+interface SliderOption<T extends string> {
+  value: T;
+  label: string;
+  testId: string;
+}
+
+/** One-of-N pill whose thumb slides to the chosen item; `data-count`/`data-active` drive the slide. */
+function Slider<T extends string>(props: {
+  label: string;
+  value: T;
+  options: ReadonlyArray<SliderOption<T>>;
+  onChange: (value: T) => void;
+}): ReactElement {
+  const { label, value, options, onChange } = props;
+  const activeIndex = indexOfOption(options, value);
+  return (
+    <div
+      className="segmented"
+      data-count={options.length}
+      data-active={activeIndex}
+      role="group"
+      aria-label={label}
+    >
+      <span className="segmented__thumb" aria-hidden="true" />
+      {options.map((option, index) => (
+        <button
+          key={option.value}
+          type="button"
+          className="segmented__item"
+          aria-pressed={index === activeIndex}
+          onClick={() => onChange(option.value)}
+          data-testid={option.testId}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** The index the thumb has to sit at; a value outside the options is a bug, not a default. */
+function indexOfOption<T extends string>(options: ReadonlyArray<{ value: T }>, value: T): number {
+  const index = options.findIndex((option) => option.value === value);
+  if (index === -1) throw new Error(`unknown option value: ${value}`);
+  return index;
 }

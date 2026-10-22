@@ -7,7 +7,7 @@ import { findNode } from '../tree-utils';
 import { epochToLocalInput, localInputToEpoch } from '../time';
 import { HOUR_MS } from '../calendar-utils';
 import { NodePicker } from './NodePicker';
-import { CheckIcon, ClockIcon, FlagIcon, LinkIcon, NoteIcon, PencilIcon, TrashIcon, XIcon } from './icons';
+import { CheckIcon, LinkIcon, TrashIcon, XIcon } from './icons';
 
 /**
  * Edit (or create) a calendar block. `block === null` means "new block".
@@ -67,38 +67,30 @@ export function BlockDetailPanel(props: {
     }
   };
 
-  const inputClass = 'mt-1 flex-1 rounded border border-gray-300 px-2 py-1 text-gray-900';
-
   return (
-    <div
-      className="rounded border border-gray-300 bg-white p-4 pt-0 text-sm h-full overflow-auto"
-      data-testid="block-detail"
-    >
-      <div
-        className={`flex items-center justify-between ${
-          bare === true ? 'sticky top-0 z-10 -mx-4 mb-1 bg-white px-4 py-1' : ''
-        }`}
-      >
-        <h2 className="font-semibold">{block === null ? t('calendar.newTitle') : t('calendar.editTitle')}</h2>
+    <div className="detail" data-testid="block-detail">
+      <div className="detail__head">
+        <h2 className="detail__title">{block === null ? t('calendar.newTitle') : t('calendar.editTitle')}</h2>
         <button
           type="button"
           data-testid="block-cancel"
           onClick={onClose}
-          className="inline-flex items-center rounded px-3 py-1.5 text-gray-500 hover:bg-gray-100 md:px-2 md:py-0.5"
+          aria-label={t('calendar.close')}
+          className="btn btn--icon"
         >
-          <XIcon className="h-4 w-4" />
+          <XIcon className="icon" />
         </button>
       </div>
 
       {block !== null && (
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="detail__actions">
           <button
             type="button"
             data-testid="block-complete"
             onClick={() => client.setBlockCompleted(block.id, !block.status)}
-            className="inline-flex h-8 items-center gap-1.5 rounded bg-green-600 px-2 py-2 text-white hover:bg-green-700 md:py-1"
+            className={block.status ? 'btn btn--sm' : 'btn btn--sm btn--primary'}
           >
-            <CheckIcon className="h-4 w-4" />
+            <CheckIcon className="icon icon--sm" />
             {block.status ? t('detail.uncomplete') : t('detail.complete')}
           </button>
           <button
@@ -110,72 +102,66 @@ export function BlockDetailPanel(props: {
                 onClose();
               }
             }}
-            className="inline-flex h-8 items-center gap-1.5 rounded bg-red-600 px-2 py-2 text-white hover:bg-red-700 md:py-1"
+            className="btn btn--sm btn--danger"
           >
-            <TrashIcon className="h-4 w-4" />
+            <TrashIcon className="icon icon--sm" />
             {t('calendar.delete')}
           </button>
         </div>
       )}
 
-      <div className="mt-3 space-y-3 text-sm">
-        <div className="flex flex-col">
-          <span className="flex items-center gap-1.5 text-sm font-semibold text-blue-600">
-            <PencilIcon className="h-4 w-4" />
-            {t('calendar.name')}
-          </span>
-          <input data-testid="block-name" value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
-        </div>
-        <div className="flex flex-col gap-3">
-          <label className="flex-1 flex flex-col">
-            <span className="flex items-center gap-1.5 text-sm font-semibold text-blue-600">
-              <ClockIcon className="h-4 w-4" />
-              {t('calendar.start')}
-            </span>
+      <div className="form">
+        <label className="field">
+          <span className="field__label">{t('calendar.name')}</span>
+          <input data-testid="block-name" value={name} onChange={(e) => setName(e.target.value)} className="input" />
+        </label>
+
+        <div className="form__row">
+          <label className="field">
+            <span className="field__label">{t('calendar.start')}</span>
             <input
               data-testid="block-start"
               type="datetime-local"
               step={1}
               value={startInput}
               onChange={(e) => setStartInput(e.target.value)}
-              className={inputClass}
+              className="input"
             />
           </label>
-          <label className="flex-1 flex flex-col">
-            <span className="flex items-center gap-1.5 text-sm font-semibold text-blue-600">
-              <FlagIcon className="h-4 w-4" />
-              {t('calendar.end')}
-            </span>
+          <label className="field">
+            <span className="field__label">{t('calendar.end')}</span>
             <input
               data-testid="block-end"
               type="datetime-local"
               step={1}
               value={endInput}
               onChange={(e) => setEndInput(e.target.value)}
-              className={inputClass}
+              className="input"
             />
           </label>
         </div>
-        <label className="flex flex-col">
-          <span className="flex items-center gap-1.5 text-sm font-semibold text-blue-600">
-            <NoteIcon className="h-4 w-4" />
-            {t('calendar.note')}
-          </span>
-          <textarea data-testid="block-note" value={note} onChange={(e) => setNote(e.target.value)} className={inputClass} rows={2} />
+
+        <label className="field">
+          <span className="field__label">{t('calendar.note')}</span>
+          <textarea
+            data-testid="block-note"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            className="textarea"
+            rows={2}
+          />
         </label>
 
-        <div>
-          <span className="flex items-center gap-1.5 text-sm font-semibold text-blue-600">
-            <LinkIcon className="h-4 w-4" />
-            {t('calendar.linkedNode')}
-          </span>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+        <div className="field">
+          <span className="field__label">{t('calendar.linkedNode')}</span>
+          <div className="cluster">
             <button
               type="button"
               data-testid="block-link"
               onClick={() => setPickerOpen(true)}
-              className="rounded px-2 py-1.5 text-blue-700 hover:bg-blue-50 md:px-1.5 md:py-0.5"
+              className="btn btn--sm"
             >
+              <LinkIcon className="icon icon--sm" />
               {linked?.name ?? t('calendar.noLink')}
             </button>
             {nodeId !== null && (
@@ -183,7 +169,7 @@ export function BlockDetailPanel(props: {
                 type="button"
                 data-testid="block-link-clear"
                 onClick={() => setNodeId(null)}
-                className="rounded px-2 py-1.5 text-red-700 hover:bg-red-50 md:px-1.5 md:py-0.5"
+                className="btn btn--link btn--xs"
               >
                 {t('calendar.clearLink')}
               </button>
@@ -191,16 +177,13 @@ export function BlockDetailPanel(props: {
           </div>
         </div>
 
-        {error !== null && <p className="text-xs text-red-700">{error}</p>}
+        {error !== null && <p className="form__error">{error}</p>}
 
-        <button
-          type="button"
-          data-testid="block-save"
-          onClick={save}
-          className="rounded border border-gray-400 bg-gray-100 px-2 py-2 font-medium text-gray-700 hover:bg-gray-200 md:py-1"
-        >
-          {t('calendar.save')}
-        </button>
+        <div className="form__actions">
+          <button type="button" data-testid="block-save" onClick={save} className="btn btn--primary">
+            {t('calendar.save')}
+          </button>
+        </div>
       </div>
 
       {pickerOpen && (

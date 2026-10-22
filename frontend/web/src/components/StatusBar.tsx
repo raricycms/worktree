@@ -2,6 +2,10 @@ import { useState } from 'react';
 import type { WorktreeClient } from '@worktree/client';
 import { useI18n } from '../i18n';
 
+/**
+ * Sync state and the actions that change it. Status is never carried by the
+ * dot alone: every state also names itself in text.
+ */
 export function StatusBar(props: {
   online: boolean;
   pendingCount: number;
@@ -39,18 +43,13 @@ export function StatusBar(props: {
 
   if (authFailed) {
     return (
-      <div className="flex items-center gap-3 text-sm">
-        <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2.5 w-2.5 rounded-full bg-amber-500" aria-hidden />
-          <span className="text-amber-800">{t('status.unauthorized')}</span>
+      <div className="status">
+        <span className="status__state" data-state="unauthorized">
+          <span className="status__dot" aria-hidden />
+          <span>{t('status.unauthorized')}</span>
         </span>
         {onRelogin !== undefined && (
-          <button
-            type="button"
-            onClick={onRelogin}
-            data-testid="status-relogin"
-            className="rounded border border-gray-300 bg-white px-2 py-0.5 hover:bg-gray-50"
-          >
+          <button type="button" onClick={onRelogin} data-testid="status-relogin" className="btn btn--sm">
             {t('status.loginAgain')}
           </button>
         )}
@@ -59,23 +58,27 @@ export function StatusBar(props: {
   }
 
   return (
-    <div className="flex items-center gap-3 text-sm">
-      <span className="flex items-center gap-1.5">
-        <span
-          className={`inline-block h-2.5 w-2.5 rounded-full ${online ? 'bg-green-500' : 'bg-red-500'}`}
-          aria-hidden
-        />
-        <span className="text-gray-600">{online ? t('status.online') : t('status.offline')}</span>
+    <div className="status">
+      {/* The local user never connects, so "offline" and its danger dot would
+          report a failure where the mode simply is offline-only. */}
+      <span
+        className="status__state"
+        data-state={client.isLocal() ? 'local' : online ? 'online' : 'offline'}
+      >
+        <span className="status__dot" aria-hidden />
+        <span>{client.isLocal() ? t('status.local') : online ? t('status.online') : t('status.offline')}</span>
       </span>
       {pendingCount > 0 && (
-        <span className="text-amber-700">{t('status.pending', { n: pendingCount })}</span>
+        <span className="pill pill--brand" data-testid="status-pending">
+          {t('status.pending', { n: pendingCount })}
+        </span>
       )}
       <button
         type="button"
         onClick={onUndo}
         disabled={!canUndo}
         data-testid="status-undo"
-        className="rounded border border-gray-300 bg-white px-2 py-0.5 hover:bg-gray-50 disabled:opacity-40"
+        className="btn btn--sm"
       >
         {t('status.undo')}
       </button>
@@ -85,7 +88,7 @@ export function StatusBar(props: {
           onClick={() => void onReconnect()}
           disabled={reconnecting}
           data-testid="status-reconnect"
-          className="rounded border border-gray-300 bg-white px-2 py-0.5 hover:bg-gray-50 disabled:opacity-40"
+          className="btn btn--sm btn--primary"
         >
           {reconnecting ? t('status.reconnecting') : t('status.reconnect')}
         </button>

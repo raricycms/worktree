@@ -4,7 +4,7 @@ import type { WorktreeClient } from '@worktree/client';
 import type { DisplayPrefs } from '../config';
 import { useI18n } from '../i18n';
 import { weekdayNames } from '../weekdays';
-import { useIsMobile } from '../hooks/useMediaQuery';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import { findNode } from '../tree-utils';
 import {
   DAY_MS,
@@ -51,7 +51,9 @@ export function CalendarPage(props: {
   const { t } = useI18n();
   const weekdays = weekdayNames(t);
   const { client, tree, display, calendarDays, nowMs = Date.now() } = props;
-  const isMobile = useIsMobile();
+  // Matches the shared workbench breakpoint: below it the detail panel is a
+  // bottom sheet, above it the sticky side column.
+  const isMobile = useMediaQuery('(max-width: 991px)');
   const [anchor, setAnchor] = useState<number>(() => dayStartMs(nowMs));
   const [editing, setEditing] = useState<Editing | null>(null);
   const [rulesOpen, setRulesOpen] = useState(false);
@@ -77,6 +79,16 @@ export function CalendarPage(props: {
     () => Array.from({ length: calendarDays }, (_, i) => anchor + i * DAY_MS),
     [anchor, calendarDays],
   );
+  // Static marker for "now"; null while today is outside the visible window.
+  const nowLine = useMemo(() => {
+    if (nowMs < anchor || nowMs >= anchor + calendarDays * DAY_MS) return null;
+    const dayIndex = Math.floor((nowMs - anchor) / DAY_MS);
+    return {
+      top: `${((nowMs - anchor - dayIndex * DAY_MS) / DAY_MS) * 100}%`,
+      left: dayOffsetCalc(dayIndex / calendarDays),
+      width: dayWidthCalc(1 / calendarDays),
+    };
+  }, [anchor, calendarDays, nowMs]);
 
   const editBlock = editing?.mode === 'edit' ? (blocks.find((b) => b.id === editing.id) ?? null) : null;
   const editRule =
@@ -110,206 +122,226 @@ export function CalendarPage(props: {
     ) : null;
 
   return (
-    <div className={`flex w-full flex-1 min-h-0 ${isMobile ? 'flex-col' : ''}`}>
-      <div className="flex min-w-0 flex-1 flex-col min-h-0 max-w-[700px] mx-auto">
-        <div className="flex items-center gap-2 pb-2 flex-wrap ml-2 mr-2">
-          <button
-            type="button"
-            data-testid="calendar-prev"
-            onClick={() => nav(-1)}
-            className="inline-flex items-center gap-1 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
-          >
-            <ChevronLeftIcon className="h-3.5 w-3.5" />
-            {isMobile ? '' : t('calendar.prev')}
-          </button>
-          <button
-            type="button"
-            data-testid="calendar-today"
-            onClick={() => setAnchor(dayStartMs(nowMs))}
-            className="rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
-          >
-            {t('calendar.today')}
-          </button>
-          <button
-            type="button"
-            data-testid="calendar-next"
-            onClick={() => nav(1)}
-            className="inline-flex items-center gap-1 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
-          >
-            {isMobile ? '' : t('calendar.next')}
-            <ChevronRightIcon className="h-3.5 w-3.5" />
-          </button>
-          <input
-            type="date"
-            data-testid="calendar-date"
-            aria-label={t('calendar.jumpToDay')}
-            value={formatDateInput(anchor)}
-            onChange={(e) => {
-              const ms = parseDateInput(e.target.value);
-              if (ms !== null) setAnchor(ms);
-            }}
-            className="rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700"
-          />
-          <div className="flex-1" />
-          <button
-            type="button"
-            data-testid="calendar-rules"
-            onClick={() => {
-              setEditing(null);
-              setRulesOpen(true);
-            }}
-            className="rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
-          >
-            {t('rule.listTitle')}
-          </button>
-          <button
-            type="button"
-            data-testid="calendar-add-rule"
-            onClick={() => setEditing({ mode: 'add-rule' })}
-            className="rounded bg-teal-600 px-3 py-1 text-xs text-white hover:bg-teal-700"
-          >
-            + {t('rule.add')}
-          </button>
-          <button
-            type="button"
-            data-testid="calendar-add"
-            onClick={() => setEditing({ mode: 'add' })}
-            className="rounded bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-700"
-          >
-            + {t('calendar.add')}
-          </button>
-        </div>
-
-        <div className="flex w-full">
-          <div style={{ width: HOUR_GUTTER_PX }} />
-          {days.map((d) => (
-            <div
-              key={d}
-              className={`flex-1 text-center text-xs py-1 ${isToday(d, nowMs) ? 'font-semibold text-blue-700' : 'text-gray-600'}`}
-            >
-              {formatDayHeader(d, weekdays)}
-            </div>
-          ))}
-        </div>
-
-        <div className="relative flex-1 min-h-0 overflow-y-auto rounded border border-gray-300 bg-white">
-          {/* The canvas fills the available space, but hour rows never shrink
-              below MIN_PX_PER_HOUR — the day scrolls when the space is short.
-              The day columns share the width evenly (fewer days → wider). */}
-          <div className="relative h-full w-full" style={{ minHeight: 24 * MIN_PX_PER_HOUR }}>
-            {Array.from({ length: 24 }, (_, h) => (
-              <div key={h}>
-                <div
-                  className={`absolute left-0 right-0 border-t ${h === 0 ? 'border-gray-400' : 'border-gray-200'}`}
-                  style={{ top: `${(h / 24) * 100}%` }}
-                />
-                <div
-                  className="absolute translate-y-[2px] pr-1 text-right text-[10px] leading-none text-gray-400"
-                  style={{ top: `${(h / 24) * 100}%`, left: 0, width: HOUR_GUTTER_PX - 4 }}
-                >
-                  {formatHourLabel(h)}
-                </div>
-              </div>
-            ))}
-            {days.slice(1).map((d, i) => (
-              <div
-                key={d}
-                className="absolute top-0 bottom-0 w-0.5 bg-gray-300"
-                style={{ left: dayOffsetCalc((i + 1) / calendarDays) }}
-              />
-            ))}
-            {days.map((d, i) =>
-              isToday(d, nowMs) ? (
-                <div
-                  key={d}
-                  className="absolute top-0 bottom-0 bg-blue-50/60"
-                  style={{ left: dayOffsetCalc(i / calendarDays), width: dayWidthCalc(1 / calendarDays) }}
-                />
-              ) : null,
-            )}
-            {bars.map((bar) => {
-              const entry = bar.item;
-              const geometry = {
-                top: `${(bar.topPx / DAY_PX) * 100}%`,
-                height: `${(bar.heightPx / DAY_PX) * 100}%`,
-                // Each lane occupies 1/lanes of the day column; the old
-                // `1 - lane/lanes` width made lane 0 span the whole column.
-                left: dayOffsetCalc((bar.dayIndex + bar.lane / bar.lanes) / calendarDays),
-                width: dayWidthCalc(1 / bar.lanes / calendarDays),
-              };
-              const base = 'absolute overflow-hidden rounded p-1 text-left text-white min-h-[14px] hover:brightness-95';
-              if (entry.kind === 'block') {
-                const linked = entry.block.nodeId !== undefined ? findNode(tree, entry.block.nodeId) : undefined;
-                const selected = editing?.mode === 'edit' && editing.id === bar.id;
-                return (
-                  <button
-                    key={`${bar.id}#${bar.dayIndex}`}
-                    type="button"
-                    data-testid={`block-${bar.id}`}
-                    onClick={() => setEditing({ mode: 'edit', id: bar.id })}
-                    title={entry.block.name + (linked ? ` · ${linked.name}` : '')}
-                    className={`${base} ${selected ? 'ring-2 ring-inset ring-blue-300' : ''}`}
-                    style={{
-                      ...geometry,
-                      backgroundColor: blockColor(bar.id),
-                      opacity: entry.block.status ? 0.5 : undefined,
-                    }}
-                  >
-                    <span className="block truncate text-xs">{entry.block.name}</span>
-                    {linked !== undefined && (
-                      <span className="block truncate text-[10px] opacity-80">{linked.name}</span>
-                    )}
-                  </button>
-                );
-              }
-              const selected =
-                editing?.mode === 'rule' &&
-                editing.ruleId === entry.occ.ruleId &&
-                editing.day === entry.occ.day;
-              return (
-                <button
-                  key={`${bar.id}#${bar.dayIndex}`}
-                  type="button"
-                  data-testid={`occurrence-${bar.id}`}
-                  onClick={() => setEditing({ mode: 'rule', ruleId: entry.occ.ruleId, day: entry.occ.day })}
-                  title={entry.occ.name}
-                  className={`${base} ${selected ? 'ring-2 ring-inset ring-blue-300' : ''}`}
-                  style={{ ...geometry, backgroundColor: blockColor(entry.occ.ruleId) }}
-                >
-                  <span className="block truncate text-xs">{entry.occ.name}</span>
-                </button>
-              );
-            })}
-          </div>
+    <div className="page-wrap">
+      <div className="page-head">
+        <div className="page-head__inner">
+          <h1 className="page-title">{t('tabs.calendar')}</h1>
         </div>
       </div>
 
-      {isMobile ? (
-        detailPanel !== null && (
-          <div className="max-h-[55vh] min-h-[55vh] w-full overflow-y-auto rounded-t-2xl border-t border-gray-300 bg-white shadow-2xl">
-            {detailPanel}
+      <div className="page-body">
+        <div className="cal-page">
+          <div className="cal-toolbar">
+            <button
+              type="button"
+              data-testid="calendar-prev"
+              aria-label={t('calendar.prev')}
+              onClick={() => nav(-1)}
+              className="btn btn--sm"
+            >
+              <ChevronLeftIcon className="icon icon--sm" />
+              {isMobile ? '' : t('calendar.prev')}
+            </button>
+            <button
+              type="button"
+              data-testid="calendar-today"
+              onClick={() => setAnchor(dayStartMs(nowMs))}
+              className="btn btn--sm"
+            >
+              {t('calendar.today')}
+            </button>
+            <button
+              type="button"
+              data-testid="calendar-next"
+              aria-label={t('calendar.next')}
+              onClick={() => nav(1)}
+              className="btn btn--sm"
+            >
+              {isMobile ? '' : t('calendar.next')}
+              <ChevronRightIcon className="icon icon--sm" />
+            </button>
+            <input
+              type="date"
+              data-testid="calendar-date"
+              aria-label={t('calendar.jumpToDay')}
+              value={formatDateInput(anchor)}
+              onChange={(e) => {
+                const ms = parseDateInput(e.target.value);
+                if (ms !== null) setAnchor(ms);
+              }}
+              className="input input--compact w-auto"
+            />
+            <div className="spacer" />
+            <button
+              type="button"
+              data-testid="calendar-rules"
+              onClick={() => {
+                setEditing(null);
+                setRulesOpen(true);
+              }}
+              className="btn btn--sm"
+            >
+              {t('rule.listTitle')}
+            </button>
+            <button
+              type="button"
+              data-testid="calendar-add-rule"
+              onClick={() => setEditing({ mode: 'add-rule' })}
+              className="btn btn--sm btn--primary"
+            >
+              + {t('rule.add')}
+            </button>
+            <button
+              type="button"
+              data-testid="calendar-add"
+              onClick={() => setEditing({ mode: 'add' })}
+              className="btn btn--sm btn--primary"
+            >
+              + {t('calendar.add')}
+            </button>
           </div>
-        )
-      ) : (
-        <div className="w-96 shrink-0">
-          {detailPanel ?? (
-            <div className="rounded border border-gray-300 bg-white p-4 text-sm text-gray-500">
-              {t('calendar.hint')}
+
+          <div className="workbench">
+            <div className="workbench__main">
+              <div className="cal">
+                <div className="cal__canvas">
+                  {/* The day head is the canvas's first child so it and the grid
+                      share one content box; outside the canvas the card padding
+                      and the scrollbar gutter offset it from the day columns. */}
+                  <div className="cal__head">
+                    <div className="cal__gutter" />
+                    {days.map((d) => (
+                      <div
+                        key={d}
+                        className="cal__dayhead"
+                        data-today={isToday(d, nowMs) ? 'true' : 'false'}
+                      >
+                        {formatDayHeader(d, weekdays)}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* The canvas fills the available space, but hour rows never shrink
+                      below MIN_PX_PER_HOUR — the day scrolls when the space is short.
+                      The day columns share the width evenly (fewer days → wider). */}
+                  <div className="cal__canvas-inner" style={{ minHeight: 24 * MIN_PX_PER_HOUR }}>
+                    {Array.from({ length: 24 }, (_, h) => (
+                      <div key={h}>
+                        <div
+                          className="cal__hourline"
+                          data-first={h === 0 ? 'true' : 'false'}
+                          style={{ top: `${(h / 24) * 100}%` }}
+                        />
+                        <div
+                          className="cal__hourlabel"
+                          style={{ top: `${(h / 24) * 100}%`, left: 0, width: HOUR_GUTTER_PX - 4 }}
+                        >
+                          {formatHourLabel(h)}
+                        </div>
+                      </div>
+                    ))}
+                    {days.slice(1).map((d, i) => (
+                      <div
+                        key={d}
+                        className="cal__daydivider"
+                        style={{ left: dayOffsetCalc((i + 1) / calendarDays) }}
+                      />
+                    ))}
+                    {days.map((d, i) =>
+                      isToday(d, nowMs) ? (
+                        <div
+                          key={d}
+                          className="cal__today"
+                          style={{
+                            left: dayOffsetCalc(i / calendarDays),
+                            width: dayWidthCalc(1 / calendarDays),
+                          }}
+                        />
+                      ) : null,
+                    )}
+                    {nowLine !== null && <div className="cal__now" style={nowLine} />}
+                    {bars.map((bar) => {
+                      const entry = bar.item;
+                      const geometry = {
+                        top: `${(bar.topPx / DAY_PX) * 100}%`,
+                        height: `${(bar.heightPx / DAY_PX) * 100}%`,
+                        // Each lane occupies 1/lanes of the day column; the old
+                        // `1 - lane/lanes` width made lane 0 span the whole column.
+                        left: dayOffsetCalc((bar.dayIndex + bar.lane / bar.lanes) / calendarDays),
+                        width: dayWidthCalc(1 / bar.lanes / calendarDays),
+                      };
+                      if (entry.kind === 'block') {
+                        const linked =
+                          entry.block.nodeId !== undefined ? findNode(tree, entry.block.nodeId) : undefined;
+                        const selected = editing?.mode === 'edit' && editing.id === bar.id;
+                        return (
+                          <button
+                            key={`${bar.id}#${bar.dayIndex}`}
+                            type="button"
+                            data-testid={`block-${bar.id}`}
+                            data-selected={selected ? 'true' : 'false'}
+                            data-completed={entry.block.status ? 'true' : 'false'}
+                            onClick={() => setEditing({ mode: 'edit', id: bar.id })}
+                            title={entry.block.name + (linked ? ` · ${linked.name}` : '')}
+                            className="cal-bar"
+                            style={{
+                              ...geometry,
+                              backgroundColor: blockColor(bar.id),
+                            }}
+                          >
+                            <span className="cal-bar__name">{entry.block.name}</span>
+                            {linked !== undefined && <span className="cal-bar__link">{linked.name}</span>}
+                          </button>
+                        );
+                      }
+                      const selected =
+                        editing?.mode === 'rule' &&
+                        editing.ruleId === entry.occ.ruleId &&
+                        editing.day === entry.occ.day;
+                      return (
+                        <button
+                          key={`${bar.id}#${bar.dayIndex}`}
+                          type="button"
+                          data-testid={`occurrence-${bar.id}`}
+                          data-selected={selected ? 'true' : 'false'}
+                          data-completed="false"
+                          onClick={() =>
+                            setEditing({ mode: 'rule', ruleId: entry.occ.ruleId, day: entry.occ.day })
+                          }
+                          title={entry.occ.name}
+                          className="cal-bar"
+                          style={{ ...geometry, backgroundColor: blockColor(entry.occ.ruleId) }}
+                        >
+                          <span className="cal-bar__name">{entry.occ.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {!isMobile && (
+              <div className="workbench__side">
+                <div className="card">
+                  {detailPanel ?? <p className="muted small">{t('calendar.hint')}</p>}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {isMobile && detailPanel !== null && (
+            <div className="sheet">
+              <div className="sheet__handle" />
+              {detailPanel}
             </div>
           )}
         </div>
-      )}
+      </div>
 
       {editing?.mode === 'add' && (
-        <div
-          data-testid="block-modal"
-          className="fixed inset-0 z-20 flex items-center justify-center bg-black/30 p-4"
-          onClick={() => setEditing(null)}
-        >
-          <div
-            className="w-full max-w-lg max-h-[90vh] overflow-auto rounded-lg border border-gray-300 bg-white"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div data-testid="block-modal" className="modal" onClick={() => setEditing(null)}>
+          <div className="modal__panel" onClick={(e) => e.stopPropagation()}>
             <BlockDetailPanel
               bare
               block={null}
@@ -324,45 +356,32 @@ export function CalendarPage(props: {
       )}
 
       {editing?.mode === 'add-rule' && (
-        <div
-          data-testid="rule-modal"
-          className="fixed inset-0 z-20 flex items-center justify-center bg-black/30 p-4"
-          onClick={() => setEditing(null)}
-        >
-          <div
-            className="w-full max-w-lg max-h-[90vh] overflow-auto rounded-lg border border-gray-300 bg-white"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div data-testid="rule-modal" className="modal" onClick={() => setEditing(null)}>
+          <div className="modal__panel" onClick={(e) => e.stopPropagation()}>
             <RuleDetailPanel bare rule={null} client={client} nowMs={nowMs} onClose={() => setEditing(null)} />
           </div>
         </div>
       )}
 
       {rulesOpen && (
-        <div
-          data-testid="rule-list-modal"
-          className="fixed inset-0 z-20 flex items-center justify-center bg-black/30 p-4"
-          onClick={() => setRulesOpen(false)}
-        >
-          <div
-            className="w-full max-w-lg max-h-[90vh] overflow-auto rounded-lg border border-gray-300 bg-white p-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold">{t('rule.listTitle')}</h2>
+        <div data-testid="rule-list-modal" className="modal" onClick={() => setRulesOpen(false)}>
+          <div className="modal__panel" onClick={(e) => e.stopPropagation()}>
+            <div className="modal__head">
+              <h2 className="section-title">{t('rule.listTitle')}</h2>
               <button
                 type="button"
                 data-testid="rule-list-close"
+                aria-label={t('calendar.close')}
                 onClick={() => setRulesOpen(false)}
-                className="inline-flex items-center rounded px-3 py-1.5 text-gray-500 hover:bg-gray-100 md:px-2 md:py-0.5"
+                className="btn btn--icon btn--sm"
               >
-                <XIcon className="h-4 w-4" />
+                <XIcon className="icon" />
               </button>
             </div>
             {rules.length === 0 ? (
-              <p className="mt-3 text-sm text-gray-500">{t('rule.listEmpty')}</p>
+              <p className="muted small">{t('rule.listEmpty')}</p>
             ) : (
-              <ul className="mt-3 space-y-1">
+              <ul className="rule-list">
                 {rules.map((r) => (
                   <li key={r.id}>
                     <button
@@ -372,13 +391,13 @@ export function CalendarPage(props: {
                         setRulesOpen(false);
                         setEditing({ mode: 'rule', ruleId: r.id });
                       }}
-                      className="w-full rounded border border-gray-200 px-3 py-2 text-left hover:bg-gray-50"
+                      className="rule-item"
                     >
-                      <span className="block text-sm text-gray-900">
+                      <span className="node-name">
                         {r.name}
                         {r.active ? '' : ` · ${t('rule.off')}`}
                       </span>
-                      <span className="block truncate text-xs text-gray-500">{ruleSummary(r, t)}</span>
+                      <span className="tiny muted">{ruleSummary(r, t)}</span>
                     </button>
                   </li>
                 ))}

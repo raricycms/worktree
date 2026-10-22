@@ -54,89 +54,96 @@ export function AuthPage(props: {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-100 px-4">
-      <div className="w-full max-w-96 rounded border border-gray-300 bg-white px-6 py-5 shadow-sm">
-        <h1 className="text-lg font-semibold">{t('auth.title')}</h1>
-        <p className="mt-1 text-xs text-gray-500">{serverUrl}</p>
-        <div className="mt-3 flex gap-2">
+    <div className="auth">
+      <div className="auth__panel">
+        <div className="stack">
+          <h1 className="visually-hidden">{t('auth.title')}</h1>
+          <span className="auth__brand">{t('app.title')}</span>
+          <p className="page-meta mono">{serverUrl}</p>
+        </div>
+
+        <div
+          className="segmented"
+          data-count={2}
+          data-active={mode === 'login' ? 0 : 1}
+          role="group"
+          aria-label={t('auth.title')}
+        >
+          <span className="segmented__thumb" aria-hidden="true" />
           <button
             type="button"
             data-testid="auth-mode-login"
+            aria-pressed={mode === 'login'}
             onClick={() => {
               setMode('login');
               setError(null);
             }}
-            className={`rounded px-3 py-1 text-sm ${
-              mode === 'login' ? 'bg-blue-600 text-white' : 'border border-gray-300 bg-white hover:bg-gray-50'
-            }`}
+            className="segmented__item"
           >
             {t('auth.login')}
           </button>
           <button
             type="button"
             data-testid="auth-mode-register"
+            aria-pressed={mode === 'register'}
             onClick={() => {
               setMode('register');
               setError(null);
             }}
-            className={`rounded px-3 py-1 text-sm ${
-              mode === 'register' ? 'bg-blue-600 text-white' : 'border border-gray-300 bg-white hover:bg-gray-50'
-            }`}
+            className="segmented__item"
           >
             {t('auth.register')}
           </button>
         </div>
-        <div className="mt-3 flex flex-col gap-2">
-          <label className="text-sm">
-            {t('auth.username')}
+
+        <div className="form">
+          <label className="field">
+            <span className="field__label">{t('auth.username')}</span>
             <input
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               data-testid="auth-username"
-              className="mt-1 w-full rounded border border-gray-300 px-2 py-1"
+              className="input"
             />
           </label>
-          <label className="text-sm">
-            {t('auth.password')}
+          <label className="field">
+            <span className="field__label">{t('auth.password')}</span>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               data-testid="auth-password"
-              className="mt-1 w-full rounded border border-gray-300 px-2 py-1"
+              className="input"
             />
           </label>
-          <label className="text-sm">
-            {t('auth.label')}
+          <label className="field">
+            <span className="field__label">{t('auth.label')}</span>
             <input
               value={label}
               onChange={(e) => setLabel(e.target.value)}
               placeholder={t('auth.labelPlaceholder')}
               data-testid="auth-label"
-              className="mt-1 w-full rounded border border-gray-300 px-2 py-1"
+              className="input"
             />
           </label>
         </div>
+
         {error !== null && (
-          <p className="mt-2 text-xs text-red-700" data-testid="auth-error">
+          <p className="form__error" data-testid="auth-error">
             {error}
           </p>
         )}
+
         <button
           type="button"
           onClick={() => void submit()}
           disabled={busy}
           data-testid="auth-submit"
-          className="mt-3 w-full rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-40"
+          className="btn btn--primary btn--block"
         >
           {busy ? t('auth.busy') : mode === 'login' ? t('auth.login') : t('auth.register')}
         </button>
-        <button
-          type="button"
-          onClick={onUseLocal}
-          data-testid="auth-use-local"
-          className="mt-2 w-full rounded border border-gray-300 bg-white px-3 py-1 text-sm hover:bg-gray-50"
-        >
+        <button type="button" onClick={onUseLocal} data-testid="auth-use-local" className="btn btn--block">
           {t('auth.useLocal')}
         </button>
       </div>

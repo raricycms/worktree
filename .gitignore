@@ -3,6 +3,7 @@
 .env
 TODO.md
 tmp/
+.tmp/
 *_tmp
 logs/
 *.log
@@ -40,4 +41,9 @@ generated/
 
 # --- cli ---
 target/
+
+
+# --- local deployment tooling (machine-specific, not part of the project) ---
+/deploy.ps1
+/deploy.log
 

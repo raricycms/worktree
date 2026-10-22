@@ -23,6 +23,23 @@ function makeClient(resolveConflict: (choice: string) => Promise<void>): Worktre
   } as unknown as WorktreeClient;
 }
 
+/**
+ * The conflict diff is a semantic data attribute rather than a class name. It
+ * may live on the row wrapper or on its label button, so look at both.
+ */
+function diffMarkers(view: HTMLElement, nodeId: string): string[] {
+  const marks = new Set<string>();
+  for (const node of view.querySelectorAll(`[data-node-id="${nodeId}"]`)) {
+    const own = node.getAttribute('data-diff');
+    if (own !== null) marks.add(own);
+    for (const marked of node.querySelectorAll('[data-diff]')) {
+      const diff = marked.getAttribute('data-diff');
+      if (diff !== null) marks.add(diff);
+    }
+  }
+  return [...marks];
+}
+
 function renderPage(resolveConflict: (choice: string) => Promise<void>) {
   render(
     <I18nProvider lang="en">
@@ -43,9 +60,13 @@ describe('ConflictPage', () => {
     expect(screen.getByText('1 pending local op(s)')).toBeTruthy();
     // Server branch: alpha was removed → empty tree hint on the server side.
     expect(screen.getAllByText('(empty tree — select the root to add a node)').length).toBe(1);
-    // Local branch: the renamed node (row content is split into icon/text parts).
+    // Local branch: the renamed node (the row wrapper and its label button
+    // both carry data-node-id; data-status lives on the label button).
     const row = screen.getByText(
-      (_, el) => el?.getAttribute('data-node-id') === 'aaaa-1' && el.textContent?.trim() === 'alpha2 [aaaa] w:1',
+      (_, el) =>
+        el?.getAttribute('data-node-id') === 'aaaa-1' &&
+        el?.getAttribute('data-status') === 'open' &&
+        el.textContent?.trim() === 'alpha2 [aaaa] w:1',
     );
     expect(row).toBeTruthy();
   });
@@ -79,12 +100,12 @@ describe('ConflictPage', () => {
     expect(serverView.textContent).toContain('gamma');
     expect(localView.textContent).not.toContain('beta');
     expect(localView.textContent).toContain('alpha');
-    // Nodes that exist only on the server side are highlighted there.
-    expect(serverView.querySelector('[data-node-id="bbbb-1"]')?.className).toContain('bg-rose-100');
-    expect(serverView.querySelector('[data-node-id="cccc-1"]')?.className).toContain('bg-rose-100');
-    // The shared alpha is not highlighted on either side.
-    expect(serverView.querySelector('[data-node-id="aaaa-1"]')?.className).not.toContain('bg-rose-100');
-    expect(localView.querySelector('[data-node-id="aaaa-1"]')?.className).not.toContain('bg-rose-100');
+    // Nodes that exist only on the server side carry the "only" mark there.
+    expect(diffMarkers(serverView, 'bbbb-1')).toContain('only');
+    expect(diffMarkers(serverView, 'cccc-1')).toContain('only');
+    // The shared alpha is not marked on either side.
+    expect(diffMarkers(serverView, 'aaaa-1')).not.toContain('only');
+    expect(diffMarkers(localView, 'aaaa-1')).not.toContain('only');
   });
 
   it('highlights nodes that differ on both sides', () => {
@@ -104,8 +125,8 @@ describe('ConflictPage', () => {
     const localView = screen.getAllByTestId('tree-view')[1]!;
     expect(serverView.textContent).toContain('alphaX');
     expect(localView.textContent).toContain('alphaY');
-    expect(serverView.querySelector('[data-node-id="aaaa-1"]')?.className).toContain('bg-amber-100');
-    expect(localView.querySelector('[data-node-id="aaaa-1"]')?.className).toContain('bg-amber-100');
+    expect(diffMarkers(serverView, 'aaaa-1')).toContain('changed');
+    expect(diffMarkers(localView, 'aaaa-1')).toContain('changed');
   });
 
   it('says so when both versions are identical', () => {

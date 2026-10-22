@@ -8,20 +8,21 @@ const TABS: { id: Tab; key: string }[] = [
   { id: 'settings', key: 'tabs.settings' },
 ];
 
+/** Page navigation is the shared slider: the thumb slides to the current page. */
 export function Tabs({ active, onChange }: { active: Tab; onChange: (tab: Tab) => void }) {
   const { t } = useI18n();
+  const activeIndex = TABS.findIndex((tab) => tab.id === active);
+  if (activeIndex === -1) throw new Error(`unknown tab: ${active}`);
   return (
-    <nav className="mt-2 flex gap-4" aria-label={t('tabs.label')}>
+    <nav className="segmented nav" data-count={TABS.length} data-active={activeIndex} aria-label={t('tabs.label')}>
+      <span className="segmented__thumb" aria-hidden="true" />
       {TABS.map(({ id, key }) => (
         <button
           key={id}
           type="button"
           onClick={() => onChange(id)}
-          className={`border-b-2 px-1 pb-1 text-sm ${
-            active === id
-              ? 'border-blue-600 font-semibold text-blue-700'
-              : 'border-transparent text-gray-600 hover:text-gray-900'
-          }`}
+          aria-current={active === id ? 'page' : undefined}
+          className="segmented__item nav__item"
         >
           {t(key)}
         </button>

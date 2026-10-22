@@ -37,7 +37,7 @@ Dependency direction: `core` ← `server`/`client` ← `cli`/`web`. `core` is pu
 - **core** — data types, protocol, and pure functions: tree/calendar state derivation (replay), validation, filtering, pending queue, id generation. `docs/` are the contract for what it implements.
 - **server** — Express (REST) + `ws` (WebSocket) + Prisma (SQLite) + web-push. `HistoryStore` holds per-user histories in memory (loaded from DB at boot); each user's validate→append runs under a per-user serialization lock. `WsHub` broadcasts appended ops; per-user state `working|offline` (offline during a history rewrite: 503, WS closed). A 30s sweeper fires due reminders via browser push.
 - **client** — platform-agnostic sync engine: `Syncer` (catch-up + submit + conflict branch), `ClientStore` (history + pending queue persisted via a `ClientStorage` interface), `ServerAPI`/`socket`. Both CLI and web plug in their own storage.
-- **frontend/web** — React 19 + Vite PWA. Pages: Auth, Tree, Calendar, Conflict, Settings, Stats. Handles web-push subscription (`push.ts`) and conflict resolution UI (local vs server branch).
+- **frontend/web** — React 19 + Vite PWA. Pages: Auth, Tree, Calendar, Conflict, Settings, Stats. Handles web-push subscription (`push.ts`) and conflict resolution UI (local vs server branch). The interface language is `docs/ui.md`, implemented by `src/styles/` (`tokens.css` + `components.css`); light/dark follow `theme.ts` and a stored preference.
 - **frontend/cli** — command-parsing CLI over the client engine; config/auth stored under `~/.worktree/`.
 
 ## Sync model (read `docs/sync.md` + `docs/data_structure.md` — they are the source of truth)

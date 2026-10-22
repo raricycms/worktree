@@ -16,12 +16,23 @@ import type { BlockRulePatch, WorktreeClient } from '@worktree/client';
 import { useI18n } from '../i18n';
 import type { Translate } from '../i18n';
 import { WEEKDAY_KEYS, weekdayName } from '../weekdays';
-import { CheckIcon, ClockIcon, FlagIcon, NoteIcon, PencilIcon, TrashIcon, XIcon } from './icons';
+import { ExpandSelect } from './ExpandSelect';
+import { CheckIcon, TrashIcon, XIcon } from './icons';
 
 const MINUTE_MS = 60_000;
 /** bySetPos value of the "every such weekday" option; the model has no 0. */
 const POS_EVERY = 0;
 const POS_LAST = -1;
+const FREQ_OPTIONS: RuleFreq[] = ['daily', 'weekly', 'monthly', 'yearly'];
+const NTH_OPTIONS: { value: number; key: string }[] = [
+  { value: POS_EVERY, key: 'rule.nthEvery' },
+  { value: 1, key: 'rule.nth1' },
+  { value: 2, key: 'rule.nth2' },
+  { value: 3, key: 'rule.nth3' },
+  { value: 4, key: 'rule.nth4' },
+  { value: 5, key: 'rule.nth5' },
+  { value: POS_LAST, key: 'rule.nthLast' },
+];
 
 /**
  * Create or edit a calendar rule. `rule === null` means "new rule".
@@ -162,15 +173,8 @@ export function RuleDetailPanel(props: {
   const toggle = (values: number[], value: number): number[] =>
     values.includes(value) ? values.filter((v) => v !== value) : [...values, value];
 
-  const inputClass = 'mt-1 flex-1 rounded border border-gray-300 px-2 py-1 text-gray-900';
-  const labelClass = 'flex items-center gap-1.5 text-sm font-semibold text-blue-600';
-  const toggleClass = (on: boolean): string =>
-    `rounded border px-2 py-1 text-xs ${
-      on ? 'border-blue-600 bg-blue-600 text-white' : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
-    }`;
-
-  const weekdayToggles = (testIdPrefix: string): ReactNode => (
-    <div className="mt-1 flex flex-wrap gap-1">
+  const weekdayToggles = (label: string, testIdPrefix: string): ReactNode => (
+    <div className="segmented segmented--chips" role="group" aria-label={label}>
       {WEEKDAY_KEYS.map((key, i) => (
         <button
           key={key}
@@ -178,7 +182,7 @@ export function RuleDetailPanel(props: {
           data-testid={`${testIdPrefix}-${i}`}
           aria-pressed={byDay.includes(i)}
           onClick={() => setByDay((values) => toggle(values, i))}
-          className={toggleClass(byDay.includes(i))}
+          className="segmented__item"
         >
           {t(key)}
         </button>
@@ -187,40 +191,36 @@ export function RuleDetailPanel(props: {
   );
 
   return (
-    <div
-      className="rounded border border-gray-300 bg-white p-4 pt-0 text-sm h-full overflow-auto"
-      data-testid="rule-detail"
-    >
-      <div
-        className={`flex items-center justify-between ${
-          bare === true ? 'sticky top-0 z-10 -mx-4 mb-1 bg-white px-4 py-1' : ''
-        }`}
-      >
-        <h2 className="font-semibold">{rule === null ? t('rule.newTitle') : t('rule.editTitle')}</h2>
-        <button
-          type="button"
-          data-testid="rule-cancel"
-          onClick={onClose}
-          className="inline-flex items-center rounded px-3 py-1.5 text-gray-500 hover:bg-gray-100 md:px-2 md:py-0.5"
-        >
-          <XIcon className="h-4 w-4" />
-        </button>
+    <div className={bare ? 'detail' : 'card detail'} data-testid="rule-detail">
+      <div className="detail__head">
+        <h2 className="detail__title">{rule === null ? t('rule.newTitle') : t('rule.editTitle')}</h2>
+        <div className="detail__actions">
+          <button
+            type="button"
+            data-testid="rule-cancel"
+            onClick={onClose}
+            aria-label={t('calendar.close')}
+            className="btn btn--icon"
+          >
+            <XIcon className="icon" />
+          </button>
+        </div>
       </div>
 
       {rule !== null && (
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="detail__actions">
           {day !== undefined ? (
             <button
               type="button"
               data-testid="rule-skip"
               onClick={() => run(() => client.skipOccurrence(rule.id, day))}
-              className="inline-flex h-8 items-center gap-1.5 rounded bg-amber-600 px-2 py-2 text-white hover:bg-amber-700 md:py-1"
+              className="btn btn--sm"
             >
-              <XIcon className="h-4 w-4" />
+              <XIcon className="icon icon--sm" />
               {t('rule.skip')}
             </button>
           ) : (
-            <p className="self-center text-xs text-gray-500">{t('rule.skipHint')}</p>
+            <p className="tiny muted">{t('rule.skipHint')}</p>
           )}
           <button
             type="button"
@@ -230,174 +230,156 @@ export function RuleDetailPanel(props: {
                 onClose();
               }
             }}
-            className="inline-flex h-8 items-center gap-1.5 rounded bg-red-600 px-2 py-2 text-white hover:bg-red-700 md:py-1"
+            className="btn btn--sm btn--danger"
           >
-            <TrashIcon className="h-4 w-4" />
+            <TrashIcon className="icon icon--sm" />
             {t('rule.delete')}
           </button>
         </div>
       )}
 
       {showTzHint && (
-        <p data-testid="rule-tz-hint" className="mt-2 text-xs text-gray-500">
+        <p data-testid="rule-tz-hint" className="notice">
           {t('rule.tzHint', { offset: formatOffset(rule.tzOffset) })}
         </p>
       )}
 
-      <div className="mt-3 space-y-3 text-sm">
-        <label className="flex flex-col">
-          <span className={labelClass}>
-            <PencilIcon className="h-4 w-4" />
-            {t('rule.name')}
-          </span>
-          <input data-testid="rule-name" value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
-        </label>
-
-        <label className="flex flex-col">
-          <span className={labelClass}>
-            <NoteIcon className="h-4 w-4" />
-            {t('rule.note')}
-          </span>
-          <textarea
-            data-testid="rule-note"
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            className={inputClass}
-            rows={2}
-          />
-        </label>
-
-        <div className="flex flex-wrap gap-3">
-          <label className="flex flex-col">
-            <span className={labelClass}>{t('rule.freq')}</span>
-            <select
-              data-testid="rule-freq"
-              value={freq}
-              onChange={(e) => setFreq(parseFreq(e.target.value))}
-              className={inputClass}
-            >
-              <option value="daily">{t('rule.freqDaily')}</option>
-              <option value="weekly">{t('rule.freqWeekly')}</option>
-              <option value="monthly">{t('rule.freqMonthly')}</option>
-              <option value="yearly">{t('rule.freqYearly')}</option>
-            </select>
+      <div className="detail__section">
+        <div className="form">
+          <label className="field">
+            <span className="field__label">{t('rule.name')}</span>
+            <input
+              data-testid="rule-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="input"
+            />
           </label>
-          <label className="flex flex-col">
-            <span className={labelClass}>{t('rule.interval')}</span>
-            <div className="mt-1 flex items-center gap-1">
+
+          <label className="field">
+            <span className="field__label">{t('rule.note')}</span>
+            <textarea
+              data-testid="rule-note"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              className="textarea"
+              rows={2}
+            />
+          </label>
+
+          <div className="form__row">
+            <div className="field">
+              <span className="field__label">{t('rule.freq')}</span>
+              <ExpandSelect
+                value={freq}
+                options={FREQ_OPTIONS.map((value) => ({ value, label: t(`rule.freq${capitalize(value)}`) }))}
+                onChange={(value) => setFreq(parseFreq(value))}
+                label={t('rule.freq')}
+                testId="rule-freq"
+              />
+            </div>
+            <label className="field">
+              <span className="field__label">{t('rule.interval')}</span>
+              <div className="cluster">
+                <input
+                  data-testid="rule-interval"
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={intervalText}
+                  onChange={(e) => setIntervalText(e.target.value)}
+                  className="input w-24"
+                />
+                <span className="tiny muted">{t(`rule.unit.${freq}`)}</span>
+              </div>
+            </label>
+          </div>
+
+          <div className="form__row">
+            <label className="field">
+              <span className="field__label">{t('rule.startDate')}</span>
               <input
-                data-testid="rule-interval"
+                data-testid="rule-start-date"
+                type="date"
+                value={startDateText}
+                onChange={(e) => setStartDateText(e.target.value)}
+                className="input"
+              />
+            </label>
+            <label className="field">
+              <span className="field__label">{t('rule.time')}</span>
+              <input
+                data-testid="rule-time"
+                type="time"
+                value={timeText}
+                onChange={(e) => setTimeText(e.target.value)}
+                className="input"
+              />
+            </label>
+            <label className="field">
+              <span className="field__label">{t('rule.duration')}</span>
+              <input
+                data-testid="rule-duration"
                 type="number"
                 min={1}
                 step={1}
-                value={intervalText}
-                onChange={(e) => setIntervalText(e.target.value)}
-                className="w-16 rounded border border-gray-300 px-2 py-1 text-gray-900"
+                value={durationText}
+                onChange={(e) => setDurationText(e.target.value)}
+                className="input"
               />
-              <span className="text-xs text-gray-500">{t(`rule.unit.${freq}`)}</span>
-            </div>
-          </label>
-        </div>
-
-        <div className="flex flex-wrap gap-3">
-          <label className="flex flex-col">
-            <span className={labelClass}>
-              <FlagIcon className="h-4 w-4" />
-              {t('rule.startDate')}
-            </span>
-            <input
-              data-testid="rule-start-date"
-              type="date"
-              value={startDateText}
-              onChange={(e) => setStartDateText(e.target.value)}
-              className={inputClass}
-            />
-          </label>
-          <label className="flex flex-col">
-            <span className={labelClass}>
-              <ClockIcon className="h-4 w-4" />
-              {t('rule.time')}
-            </span>
-            <input
-              data-testid="rule-time"
-              type="time"
-              value={timeText}
-              onChange={(e) => setTimeText(e.target.value)}
-              className={inputClass}
-            />
-          </label>
-          <label className="flex flex-col">
-            <span className={labelClass}>{t('rule.duration')}</span>
-            <input
-              data-testid="rule-duration"
-              type="number"
-              min={1}
-              step={1}
-              value={durationText}
-              onChange={(e) => setDurationText(e.target.value)}
-              className="mt-1 w-24 rounded border border-gray-300 px-2 py-1 text-gray-900"
-            />
-          </label>
-        </div>
-
-        {freq === 'weekly' && (
-          <div>
-            <span className={labelClass}>{t('rule.weekdays')}</span>
-            {weekdayToggles('rule-day')}
+            </label>
           </div>
-        )}
 
-        {freq === 'monthly' && (
-          <div className="space-y-2">
-            <div className="flex flex-wrap items-center gap-3">
-              <label className="flex items-center gap-2 text-xs text-gray-700">
+          {freq === 'weekly' && (
+            <div className="field">
+              <span className="field__label">{t('rule.weekdays')}</span>
+              {weekdayToggles(t('rule.weekdays'), 'rule-day')}
+            </div>
+          )}
+
+          {freq === 'monthly' && (
+            <div className="field">
+              <label className="check items-start">
                 <input
                   data-testid="rule-nth-mode"
                   type="checkbox"
                   checked={byNthWeekday}
                   onChange={(e) => setByMonthDayText(e.target.checked ? '' : String(anchor.day))}
                 />
-                {t('rule.modeNthWeekday')}
+                <span className="small">{t('rule.modeNthWeekday')}</span>
               </label>
               {byNthWeekday ? (
-                <div className="flex flex-wrap items-center gap-2">
-                  <select
-                    data-testid="rule-nth"
-                    value={nthPos}
-                    onChange={(e) => setNthPos(Number(e.target.value))}
-                    className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-900"
-                  >
-                    <option value={POS_EVERY}>{t('rule.nthEvery')}</option>
-                    <option value={1}>{t('rule.nth1')}</option>
-                    <option value={2}>{t('rule.nth2')}</option>
-                    <option value={3}>{t('rule.nth3')}</option>
-                    <option value={4}>{t('rule.nth4')}</option>
-                    <option value={5}>{t('rule.nth5')}</option>
-                    <option value={POS_LAST}>{t('rule.nthLast')}</option>
-                  </select>
-                  <span className="text-xs text-gray-700">{t('rule.weekday')}</span>
+                <div className="field">
+                  <span className="field__label">
+                    {t('rule.nth')} {t('rule.weekday')}
+                  </span>
+                  <ExpandSelect
+                    value={String(nthPos)}
+                    options={NTH_OPTIONS.map((option) => ({ value: String(option.value), label: t(option.key) }))}
+                    onChange={(value) => setNthPos(parseNth(value))}
+                    label={`${t('rule.nth')} ${t('rule.weekday')}`}
+                    testId="rule-nth"
+                  />
                 </div>
               ) : (
-                <label className="flex items-center gap-2">
-                  <span className="text-xs text-gray-700">{t('rule.monthDay')}</span>
+                <label className="field">
+                  <span className="field__label">{t('rule.monthDay')}</span>
                   <input
                     data-testid="rule-month-day"
                     value={byMonthDayText}
                     onChange={(e) => setByMonthDayText(e.target.value)}
-                    className="w-24 rounded border border-gray-300 px-2 py-1 text-xs text-gray-900"
+                    className="input w-28"
                   />
                 </label>
               )}
+              {byNthWeekday && weekdayToggles(t('rule.weekday'), 'rule-nth-day')}
             </div>
-            {byNthWeekday && weekdayToggles('rule-nth-day')}
-          </div>
-        )}
+          )}
 
-        {freq === 'yearly' && (
-          <div className="space-y-2">
-            <div>
-              <span className={labelClass}>{t('rule.month')}</span>
-              <div className="mt-1 flex flex-wrap gap-1">
+          {freq === 'yearly' && (
+            <div className="field">
+              <span className="field__label">{t('rule.month')}</span>
+              <div className="segmented segmented--chips" role="group" aria-label={t('rule.month')}>
                 {monthRange().map((month) => (
                   <button
                     key={month}
@@ -405,83 +387,78 @@ export function RuleDetailPanel(props: {
                     data-testid={`rule-month-${month}`}
                     aria-pressed={byMonth.includes(month)}
                     onClick={() => setByMonth((values) => toggle(values, month))}
-                    className={toggleClass(byMonth.includes(month))}
+                    className="segmented__item"
                   >
                     {t(`rule.monthName${month}`)}
                   </button>
                 ))}
               </div>
+              <label className="field">
+                <span className="field__label">{t('rule.monthDay')}</span>
+                <input
+                  data-testid="rule-year-day"
+                  value={byMonthDayText}
+                  onChange={(e) => setByMonthDayText(e.target.value)}
+                  className="input w-28"
+                />
+              </label>
             </div>
-            <label className="flex items-center gap-2">
-              <span className="text-xs text-gray-700">{t('rule.monthDay')}</span>
-              <input
-                data-testid="rule-year-day"
-                value={byMonthDayText}
-                onChange={(e) => setByMonthDayText(e.target.value)}
-                className="w-24 rounded border border-gray-300 px-2 py-1 text-xs text-gray-900"
-              />
-            </label>
-          </div>
-        )}
+          )}
 
-        <label className="flex flex-col">
-          <span className={labelClass}>{t('rule.until')}</span>
-          <input
-            data-testid="rule-until"
-            type="date"
-            value={untilText}
-            onChange={(e) => setUntilText(e.target.value)}
-            className={inputClass}
-          />
-          <span className="mt-0.5 text-xs text-gray-500">{t('rule.untilHint')}</span>
-        </label>
+          <label className="field">
+            <span className="field__label">{t('rule.until')}</span>
+            <input
+              data-testid="rule-until"
+              type="date"
+              value={untilText}
+              onChange={(e) => setUntilText(e.target.value)}
+              className="input"
+            />
+            <span className="tiny muted">{t('rule.untilHint')}</span>
+          </label>
 
-        <label className="flex items-center gap-2">
-          <input
-            data-testid="rule-active"
-            type="checkbox"
-            checked={active}
-            onChange={(e) => setActive(e.target.checked)}
-          />
-          <span className="text-sm text-gray-700">{t('rule.active')}</span>
-        </label>
+          <label className="check">
+            <input
+              data-testid="rule-active"
+              type="checkbox"
+              checked={active}
+              onChange={(e) => setActive(e.target.checked)}
+            />
+            <span>{t('rule.active')}</span>
+          </label>
 
-        {rule !== null && (
-          <div>
-            <span className={labelClass}>{t('rule.exceptions')}</span>
-            {skips.length === 0 ? (
-              <p className="mt-1 text-xs text-gray-500">{t('rule.noExceptions')}</p>
-            ) : (
-              <ul data-testid="rule-exceptions" className="mt-1 space-y-1">
-                {skips.map((skippedDay) => (
-                  <li key={skippedDay} className="flex items-center justify-between gap-2 text-xs">
-                    <span>{formatCivilDate(civilFromDays(skippedDay))}</span>
-                    <button
-                      type="button"
-                      data-testid={`rule-restore-${skippedDay}`}
-                      onClick={() => run(() => client.unskipOccurrence(rule.id, skippedDay))}
-                      className="inline-flex items-center gap-1 rounded px-2 py-1 text-blue-700 hover:bg-blue-50"
-                    >
-                      <CheckIcon className="h-3.5 w-3.5" />
-                      {t('rule.restore')}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
+          {rule !== null && (
+            <div className="field">
+              <span className="field__label">{t('rule.exceptions')}</span>
+              {skips.length === 0 ? (
+                <p className="small muted">{t('rule.noExceptions')}</p>
+              ) : (
+                <ul data-testid="rule-exceptions" className="detail__list">
+                  {skips.map((skippedDay) => (
+                    <li key={skippedDay} className="detail__list-row">
+                      <span className="mono small">{formatCivilDate(civilFromDays(skippedDay))}</span>
+                      <button
+                        type="button"
+                        data-testid={`rule-restore-${skippedDay}`}
+                        onClick={() => run(() => client.unskipOccurrence(rule.id, skippedDay))}
+                        className="btn btn--xs"
+                      >
+                        <CheckIcon className="icon icon--sm" />
+                        {t('rule.restore')}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
 
-        {error !== null && <p className="text-xs text-red-700">{error}</p>}
+          {error !== null && <p className="form__error">{error}</p>}
 
-        <button
-          type="button"
-          data-testid="rule-save"
-          onClick={save}
-          className="rounded border border-gray-400 bg-gray-100 px-2 py-2 font-medium text-gray-700 hover:bg-gray-200 md:py-1"
-        >
-          {t('rule.save')}
-        </button>
+          <button type="button" data-testid="rule-save" onClick={save} className="btn btn--primary btn--block">
+            {t('rule.save')}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -595,6 +572,12 @@ function sortNumbers(values: number[]): number[] {
 function parseFreq(value: string): RuleFreq {
   if (value === 'daily' || value === 'weekly' || value === 'monthly' || value === 'yearly') return value;
   throw new Error(`unknown frequency: ${value}`);
+}
+
+function parseNth(value: string): number {
+  const position = Number(value);
+  if (!Number.isInteger(position)) throw new Error(`unknown nth position: ${value}`);
+  return position;
 }
 
 function monthRange(): number[] {

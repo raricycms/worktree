@@ -72,15 +72,8 @@ export function QuickCapture(props: {
   };
 
   return (
-    <div
-      data-testid="quick-capture"
-      className="fixed inset-0 z-30 flex items-start justify-center bg-black/30 p-4 pt-24"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-lg rounded-lg border border-gray-300 bg-white p-4"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div data-testid="quick-capture" className="modal" onClick={onClose}>
+      <div className="modal__panel stack" onClick={(e) => e.stopPropagation()}>
         <textarea
           ref={inputRef}
           rows={2}
@@ -94,17 +87,17 @@ export function QuickCapture(props: {
           }}
           placeholder={t('capture.placeholder', { path })}
           data-testid="quick-capture-input"
-          className="w-full resize-none rounded border border-gray-300 px-3 py-2"
+          className="textarea"
         />
         {captured !== null ? (
-          <p data-testid="quick-capture-done" className="mt-2 text-sm text-green-700">
+          <p data-testid="quick-capture-done" role="status" className="notice notice--success">
             {t('capture.added', { path: captured })}
           </p>
         ) : (
-          <p className="mt-2 text-xs text-gray-500">{t('capture.hint')}</p>
+          <p className="tiny muted">{t('capture.hint')}</p>
         )}
         {error !== null && (
-          <p data-testid="quick-capture-error" className="mt-2 text-sm text-red-700">
+          <p data-testid="quick-capture-error" role="alert" className="notice notice--danger">
             {error}
           </p>
         )}
