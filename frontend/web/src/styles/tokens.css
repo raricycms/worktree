@@ -59,8 +59,8 @@
   --fs-sm: 0.8rem;
   --fs-xs: 0.75rem;
 
-  --font-display: 'Kumbh Sans', 'Outfit', ui-sans-serif, system-ui, sans-serif;
-  --font-body: 'Outfit', 'Kumbh Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Kumbh Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-body: 'Kumbh Sans', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
   /* Data (ids, weights, dates, counts): the same monospace metrics, with the
      zero drawn as an O so a number can never be read as a letter. Letters in a

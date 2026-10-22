@@ -8,7 +8,7 @@
 # the script leaves those faces alone (see the note in the generated header).
 $ErrorActionPreference = 'Stop'
 $ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-$url = 'https://fonts.googleapis.com/css2?family=Kumbh+Sans:wght@500;600;700&family=Outfit:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap'
+$url = 'https://fonts.googleapis.com/css2?family=Kumbh+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap'
 $css = (Invoke-WebRequest -Uri $url -Headers @{ 'User-Agent' = $ua } -UseBasicParsing -TimeoutSec 60).Content
 
 $root = Split-Path -Parent $PSScriptRoot
@@ -16,8 +16,7 @@ $fontDir = Join-Path $root 'public\fonts'
 New-Item -ItemType Directory -Force -Path $fontDir | Out-Null
 
 $desired = @{
-  'Kumbh Sans' = @(500, 600, 700)
-  'Outfit' = @(400, 500, 600)
+  'Kumbh Sans' = @(400, 500, 600, 700)
   'JetBrains Mono' = @(400, 600)
 }
 
