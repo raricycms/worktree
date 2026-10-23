@@ -49,7 +49,9 @@ const draftSchema = z.object({
 export async function extractTimetable(opts: ExtractTimetableOptions): Promise<TimetableDraft> {
   const messages: LlmWireMessage[] = [
     { role: 'system', content: buildVisionInstruction(opts.semester, opts.language) },
-    buildUserMessage('Extract every class from this timetable image.', opts.imageDataUrl),
+    buildUserMessage('Extract every class from this timetable image.', [
+      { id: 'vision', dataUrl: opts.imageDataUrl },
+    ]),
   ];
   const first = await opts.transport.complete({
     messages: [...messages],

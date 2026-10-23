@@ -16,6 +16,11 @@ export interface TreeNodeProps {
   depth: number;
   /** Whether this row is the last of its siblings; the guide trunk stops there. */
   isLast?: boolean;
+  /**
+   * One flag per ancestor level, by ancestor depth: true when that ancestor
+   * has a following sibling, so its guide column passes through this row.
+   */
+  openAncestors?: readonly boolean[];
   expanded: Set<string>;
   selectedId: string | null;
   display: DisplayPrefs;
@@ -30,20 +35,34 @@ export interface TreeNodeProps {
 }
 
 /**
- * One guide per ancestor level, drawn in the row's indent space. The last
- * guide is the elbow that turns from the ancestor line into this row's
- * content; the guides are absolutely positioned so they add no layout width
- * and line up with the disclosure columns at every depth.
+ * One guide column per ancestor level, drawn in the row's indent space, plus
+ * the elbow column that turns into this row and (for an expanded row) the drop
+ * column under its own chevron. Columns are absolutely positioned so they add
+ * no layout width and line up with the disclosure columns at every depth. A
+ * column exists at every level so the following columns keep their x; only the
+ * ancestors with a following sibling actually paint a line.
  */
-function TreeGuides({ depth }: { depth: number }) {
+function TreeGuides(props: {
+  depth: number;
+  openAncestors: readonly boolean[];
+  /** This row's children are open: its branch continues down the row. */
+  dropLine: boolean;
+}) {
+  const { depth, openAncestors, dropLine } = props;
   return (
     <span className="tree__guides" aria-hidden="true">
-      {Array.from({ length: depth }, (_, index) => (
-        <span
-          key={index}
-          className={index === depth - 1 ? 'tree__guide tree__guide--elbow' : 'tree__guide'}
-        />
-      ))}
+      {Array.from({ length: depth }, (_, index) => {
+        if (index === depth - 1) return <span key={index} className="tree__guide tree__guide--elbow" />;
+        return (
+          <span
+            key={index}
+            className={
+              openAncestors[index] === true ? 'tree__guide tree__guide--trunk' : 'tree__guide'
+            }
+          />
+        );
+      })}
+      {dropLine && <span className="tree__guide tree__guide--drop" />}
     </span>
   );
 }
@@ -53,6 +72,7 @@ export function TreeNode(props: TreeNodeProps) {
     view,
     depth,
     isLast,
+    openAncestors,
     expanded,
     selectedId,
     display,
@@ -66,6 +86,7 @@ export function TreeNode(props: TreeNodeProps) {
   const node = view.node;
   const hasChildren = view.children.length > 0;
   const isOpen = expanded.has(node.id);
+  const ancestors = openAncestors ?? [];
   const isSelected = selectedId === node.id;
   const diff = props.highlight?.get(node.id);
   const matched = filterActive === true && view.matched;
@@ -83,7 +104,7 @@ export function TreeNode(props: TreeNodeProps) {
         style={{ paddingLeft: `${depth * INDENT_PX}px` }}
         onClick={readOnly === true ? undefined : () => onSelect(node.id)}
       >
-        <TreeGuides depth={depth} />
+        <TreeGuides depth={depth} openAncestors={ancestors} dropLine={hasChildren && isOpen} />
         {hasChildren ? (
           <button
             type="button"
@@ -140,6 +161,7 @@ export function TreeNode(props: TreeNodeProps) {
             view={child}
             depth={depth + 1}
             isLast={index === view.children.length - 1}
+            openAncestors={[...ancestors, isLast !== true]}
             expanded={expanded}
             selectedId={selectedId}
             display={display}

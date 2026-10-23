@@ -7,6 +7,7 @@ import type { WorktreeClient } from '@worktree/client';
 import { I18nProvider } from '../src/i18n';
 import { LOCAL_USER } from '../src/config';
 import type { AppConfig } from '../src/config';
+import { ToastProvider } from '../src/components/Toast';
 import { SettingsPage } from '../src/pages/SettingsPage';
 
 const tree: Node = Tree.fromOps([{ kind: 'add', parentId: ROOT_ID, id: 'a', name: 'A', weight: 1 }]).getRoot();
@@ -26,19 +27,21 @@ function makeConfig(calendarDays: number): AppConfig {
   };
 }
 
-function renderSettings(calendarDays: number, updateConfig = vi.fn()) {
+function renderSettings(calendarDays: number, updateConfig = vi.fn(), overrides: Partial<AppConfig> = {}) {
   const client = { getPendingCount: () => 0 } as unknown as WorktreeClient;
   render(
     <I18nProvider lang="en">
-      <SettingsPage
-        config={makeConfig(calendarDays)}
-        client={client}
-        tree={tree}
-        updateConfig={updateConfig}
-        onClearCache={vi.fn()}
-        onLogout={vi.fn()}
-        onLoginOther={vi.fn()}
-      />
+      <ToastProvider>
+        <SettingsPage
+          config={{ ...makeConfig(calendarDays), ...overrides }}
+          client={client}
+          tree={tree}
+          updateConfig={updateConfig}
+          onClearCache={vi.fn()}
+          onLogout={vi.fn()}
+          onLoginOther={vi.fn()}
+        />
+      </ToastProvider>
     </I18nProvider>,
   );
   return { updateConfig };
@@ -78,6 +81,42 @@ describe('SettingsPage quick capture path', () => {
     fireEvent.click(screen.getByTestId('settings-apply-quick-path'));
     expect(updateConfig).not.toHaveBeenCalled();
     expect(screen.getByText(/Invalid path/)).toBeTruthy();
+  });
+});
+
+describe('SettingsPage server presets', () => {
+  it('offers both known servers and marks the current one', () => {
+    renderSettings(7, vi.fn(), { serverUrl: 'https://wkt.raricy.com' });
+    expect(screen.getByTestId('settings-server-preset-wkt.raricy.com').getAttribute('aria-pressed')).toBe('true');
+    expect(
+      screen.getByTestId('settings-server-preset-worktree.fuyuzheju.cn').getAttribute('aria-pressed'),
+    ).toBe('false');
+  });
+
+  it('switches to a preset in one click and confirms with a toast', () => {
+    const { updateConfig } = renderSettings(7);
+    fireEvent.click(screen.getByTestId('settings-server-preset-wkt.raricy.com'));
+    expect(updateConfig).toHaveBeenCalledWith({ serverUrl: 'https://wkt.raricy.com' });
+    expect(screen.getByTestId('toast-success').textContent).toContain('Server set to wkt.raricy.com.');
+  });
+});
+
+describe('SettingsPage apply feedback', () => {
+  it('confirms a manually applied server URL', () => {
+    const { updateConfig } = renderSettings(7);
+    fireEvent.change(screen.getByTestId('settings-server-input'), {
+      target: { value: 'https://example.com/' },
+    });
+    fireEvent.click(screen.getByTestId('settings-apply-server'));
+    expect(updateConfig).toHaveBeenCalledWith({ serverUrl: 'https://example.com' });
+    expect(screen.getByTestId('toast-success').textContent).toContain('Server set to example.com.');
+  });
+
+  it('confirms the quick capture path', () => {
+    renderSettings(7);
+    fireEvent.change(screen.getByTestId('settings-quick-path-input'), { target: { value: '/inbox' } });
+    fireEvent.click(screen.getByTestId('settings-apply-quick-path'));
+    expect(screen.getByTestId('toast-success').textContent).toContain('Quick capture path saved.');
   });
 });
 

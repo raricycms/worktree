@@ -233,6 +233,181 @@ export function planCreateTask(state: WorktreeState, input: CreateTaskInput, ctx
   return { ops, nodeId: capture.nodeId, reminderId, deadline, displayPath: capture.displayPath };
 }
 
+export interface UpdateTaskInput {
+  taskId: string;
+  title?: string;
+  note?: string;
+  dueDate?: string;
+  dueTime?: string;
+  clearDeadline?: boolean;
+  /** 0 removes the reminders tied to the deadline; > 0 replaces their offset. */
+  remindMinutesBefore?: number;
+}
+
+export interface PlannedTaskUpdate {
+  ops: Operation[];
+  nodeId: string;
+  /** The deadline after the update; undefined when the task has none. */
+  deadline?: Timestamp;
+  /** Reminder ids that now describe the deadline. */
+  reminderIds: string[];
+}
+
+/**
+ * Reminders the deadline plan owns: auto reminders, and manual ones created
+ * next to the task (planCreateTask names them after the task). User-created
+ * manual reminders with a different name are left untouched, mirroring the
+ * client's `setDeadline` semantics.
+ */
+function deadlineReminders(node: Node): Node['reminders'] {
+  return node.reminders.filter(
+    (reminder) => reminder.auto || (reminder.name !== undefined && reminder.name === node.name),
+  );
+}
+
+/** Patches the title, note, deadline and deadline reminders of a task. */
+export function planUpdateTask(state: WorktreeState, input: UpdateTaskInput, ctx: PlanContext): PlannedTaskUpdate {
+  const node = state.tree.getNode(input.taskId);
+  if (node === undefined || node.id === ROOT_ID) throw new Error(`unknown task id: ${input.taskId}`);
+  if (
+    input.title === undefined &&
+    input.note === undefined &&
+    input.dueDate === undefined &&
+    input.clearDeadline === undefined &&
+    input.dueTime === undefined &&
+    input.remindMinutesBefore === undefined
+  ) {
+    throw new Error(
+      'update_task requires at least one of title, note, due_date, clear_deadline, due_time, remind_minutes_before',
+    );
+  }
+  if (
+    input.clearDeadline === true &&
+    (input.dueDate !== undefined || input.dueTime !== undefined || (input.remindMinutesBefore ?? 0) > 0)
+  ) {
+    throw new Error('clear_deadline cannot be combined with due_date, due_time or a positive remind_minutes_before');
+  }
+
+  const title = input.title === undefined ? undefined : captureTitle(input.title, 'task title');
+
+  let deadline = node.deadline;
+  let deadlinePatch: Timestamp | null | undefined;
+  if (input.clearDeadline === true) {
+    if (node.deadline === undefined) throw new Error(`task "${node.name}" has no deadline to clear`);
+    deadline = undefined;
+    deadlinePatch = null;
+  } else if (input.dueDate !== undefined) {
+    const date = parseCivilOf(input.dueDate, 'due_date');
+    const time =
+      input.dueTime !== undefined
+        ? parseClock(input.dueTime, 'due_time')
+        : node.deadline === undefined
+          ? DEFAULT_TASK_DUE
+          : civilFromTimestamp(node.deadline, ctx.tzOffset).time;
+    deadline = timestampFromCivil(date, time, ctx.tzOffset);
+    deadlinePatch = deadline;
+  } else if (input.dueTime !== undefined) {
+    if (node.deadline === undefined) {
+      throw new Error('due_time requires due_date: the task has no deadline to change yet');
+    }
+    const current = civilFromTimestamp(node.deadline, ctx.tzOffset);
+    deadline = timestampFromCivil(current.date, parseClock(input.dueTime, 'due_time'), ctx.tzOffset);
+    deadlinePatch = deadline;
+  }
+
+  const owned = deadlineReminders(node);
+  const reminderPatches = new Map<string, { name?: string; deadline?: Timestamp }>();
+  const removed = new Set<string>();
+  const additions: Operation[] = [];
+  let reminderIds = owned.map((reminder) => reminder.id);
+
+  function patchReminder(id: string): { name?: string; deadline?: Timestamp } {
+    let patch = reminderPatches.get(id);
+    if (patch === undefined) {
+      patch = {};
+      reminderPatches.set(id, patch);
+    }
+    return patch;
+  }
+
+  if (title !== undefined) {
+    for (const reminder of owned) {
+      if (reminder.auto || reminder.name !== node.name) continue;
+      patchReminder(reminder.id).name = title;
+    }
+  }
+
+  const minutes =
+    input.remindMinutesBefore === undefined
+      ? undefined
+      : reminderMinutes(input.remindMinutesBefore, 0, 'remind_minutes_before');
+
+  if (minutes !== undefined) {
+    if (minutes === 0) {
+      for (const reminder of owned) removed.add(reminder.id);
+      reminderIds = [];
+    } else {
+      if (deadline === undefined) {
+        throw new Error('remind_minutes_before requires a deadline: pass due_date in the same call');
+      }
+      if (owned.length > 1) {
+        throw new Error(
+          `task "${node.name}" has ${owned.length} reminders tied to its deadline; refusing to guess which one to update (ids: ${owned.map((reminder) => reminder.id).join(', ')})`,
+        );
+      }
+      const reminderAt = reminderDeadline(deadline, minutes, 'remind_minutes_before');
+      const existing = owned[0];
+      if (existing === undefined) {
+        const rmdId = ctx.newId();
+        additions.push({
+          kind: 'add_reminder',
+          nodeId: node.id,
+          rmdId,
+          name: title ?? node.name,
+          deadline: reminderAt,
+        });
+        reminderIds = [rmdId];
+      } else {
+        patchReminder(existing.id).deadline = reminderAt;
+        reminderIds = [existing.id];
+      }
+    }
+  } else if (deadlinePatch !== undefined) {
+    if (deadlinePatch === null) {
+      for (const reminder of owned) removed.add(reminder.id);
+      reminderIds = [];
+    } else if (node.deadline !== undefined && deadlinePatch !== node.deadline) {
+      // Moving the deadline moves the reminders that describe it, so they keep
+      // firing the same distance before the new deadline.
+      const delta = deadlinePatch - node.deadline;
+      for (const reminder of owned) {
+        const shifted = reminder.deadline + delta;
+        if (!Number.isInteger(shifted) || shifted < 0) {
+          throw new Error(`moving the deadline would push reminder ${reminder.id} before 1970-01-01`);
+        }
+        patchReminder(reminder.id).deadline = shifted;
+      }
+    }
+  }
+
+  for (const id of removed) reminderPatches.delete(id);
+
+  const ops: Operation[] = [];
+  if (input.note !== undefined || deadlinePatch !== undefined) {
+    const patch: Extract<Operation, { kind: 'edit_node' }> = { kind: 'edit_node', id: node.id };
+    if (input.note !== undefined) patch.note = input.note;
+    if (deadlinePatch !== undefined) patch.deadline = deadlinePatch;
+    ops.push(patch);
+  }
+  if (title !== undefined && title !== node.name) ops.push({ kind: 'rename', id: node.id, name: title });
+  for (const [rmdId, patch] of reminderPatches) ops.push({ kind: 'edit_reminder', rmdId, ...patch });
+  for (const rmdId of removed) ops.push({ kind: 'remove_reminder', rmdId });
+  ops.push(...additions);
+
+  applyPlan(state, ops);
+  return { ops, nodeId: node.id, deadline, reminderIds };
+}
+
 /** Plans one weekly block rule for the weekdays/time range. */
 export function planCreateRecurring(state: WorktreeState, input: CreateRecurringInput, ctx: PlanContext): PlannedRecurring {
   const title = captureTitle(input.title, 'rule title');

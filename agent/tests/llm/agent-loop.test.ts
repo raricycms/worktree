@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { runAgentTurn } from '../../src/agent';
-import type { AgentTurnOptions, Tool } from '../../src/types';
+import { createTools } from '../../src/tools';
+import type {
+  AgentEvent,
+  AgentTurnOptions,
+  AskUserRequest,
+  LlmStreamHandlers,
+  LlmTransport,
+  Tool,
+} from '../../src/types';
 import {
   addNodeTool,
   failingTransport,
@@ -10,6 +18,7 @@ import {
   scriptedTransport,
   testContext,
   throwingTool,
+  toolOf,
 } from './fakes';
 
 function turnOptions(
@@ -21,6 +30,13 @@ function turnOptions(
     context: testContext(),
     ...overrides,
   };
+}
+
+/** The real ask_user tool, so its validation and error text are exercised. */
+function askUserTool(): Tool {
+  const tool = createTools().find((candidate) => candidate.definition.name === 'ask_user');
+  if (tool === undefined) throw new Error('ask_user is missing from the tool set');
+  return tool;
 }
 
 describe('runAgentTurn', () => {
@@ -134,12 +150,9 @@ describe('runAgentTurn', () => {
       turnOptions({ transport, userText: 'go', context, tools: [addNodeTool('create_event')] }),
     );
 
-    expect(result.steps[0]).toEqual({
-      tool: 'no_such_tool',
-      args: {},
-      summary: 'unknown tool: no_such_tool',
-      ok: false,
-    });
+    expect(result.steps[0].tool).toBe('no_such_tool');
+    expect(result.steps[0].ok).toBe(false);
+    expect(result.steps[0].summary).toContain('unknown tool: no_such_tool');
     expect(result.text).toBe('That tool does not exist.');
   });
 
@@ -223,3 +236,211 @@ describe('runAgentTurn', () => {
     ).rejects.toThrowError(/maxSteps/);
   });
 });
+
+describe('runAgentTurn streaming', () => {
+  it('prefers the streaming transport and forwards deltas to onEvent', async () => {
+    const events: AgentEvent[] = [];
+    const { transport } = streamingTransport(llmResponse({ content: 'Hello world', reasoning: 'think' }));
+    const result = await runAgentTurn(
+      turnOptions({ transport, userText: 'hi', tools: [], onEvent: (event) => events.push(event) }),
+    );
+
+    expect(result.text).toBe('Hello world');
+    expect(events).toEqual([
+      { type: 'reasoning', delta: 'think' },
+      { type: 'text', delta: 'Hello' },
+      { type: 'text', delta: ' world' },
+    ]);
+  });
+
+  it('falls back to complete when the transport has no stream', async () => {
+    const { transport, requests } = scriptedTransport([llmResponse({ content: 'plain' })]);
+    const result = await runAgentTurn(turnOptions({ transport, userText: 'hi', tools: [] }));
+    expect(result.text).toBe('plain');
+    expect(requests).toHaveLength(1);
+  });
+});
+
+describe('runAgentTurn ask_user', () => {
+  it('pauses for the human, records the answer and returns it to the model', async () => {
+    const requests: AskUserRequest[] = [];
+    const askTool = askUserTool();
+    const { transport, requests: llmRequests } = scriptedTransport([
+      llmResponse({
+        toolCalls: [
+          {
+            id: 'c1',
+            name: 'ask_user',
+            arguments: JSON.stringify({ question: 'When?', options: ['Now', 'Later'] }),
+          },
+        ],
+      }),
+      llmResponse({ content: 'Scheduled for now.' }),
+    ]);
+
+    const result = await runAgentTurn(
+      turnOptions({
+        transport,
+        userText: 'schedule it',
+        tools: [askTool],
+        onAskUser: async (request) => {
+          requests.push(request);
+          return 'Now';
+        },
+      }),
+    );
+
+    expect(requests).toEqual([{ question: 'When?', options: ['Now', 'Later'] }]);
+    expect(result.asks).toEqual([{ question: 'When?', options: ['Now', 'Later'], answer: 'Now' }]);
+    expect(result.steps[0]).toEqual({
+      tool: 'ask_user',
+      args: { question: 'When?', options: ['Now', 'Later'] },
+      summary: 'User answered: Now',
+      ok: true,
+    });
+    const toolMessage = llmRequests[1].messages[3];
+    expect(JSON.parse(String(toolMessage.content))).toEqual({ ok: true, summary: 'User answered: Now' });
+    expect(result.text).toBe('Scheduled for now.');
+  });
+
+  it('turns a missing ask callback into a clear tool error', async () => {
+    const { transport, requests } = scriptedTransport([
+      llmResponse({
+        toolCalls: [{ id: 'c1', name: 'ask_user', arguments: JSON.stringify({ question: 'When?' }) }],
+      }),
+      llmResponse({ content: 'I need a time from you.' }),
+    ]);
+
+    const result = await runAgentTurn(
+      turnOptions({ transport, userText: 'schedule it', tools: [askUserTool()] }),
+    );
+
+    expect(result.asks).toEqual([]);
+    expect(result.steps[0].ok).toBe(false);
+    expect(result.steps[0].summary).toMatch(/ask_user is unavailable/);
+    expect(result.text).toBe('I need a time from you.');
+    const toolMessage = requests[1].messages[3];
+    if (typeof toolMessage.content !== 'string') throw new Error('expected a string tool result');
+    const content: { ok: boolean; error?: string } = JSON.parse(toolMessage.content);
+    expect(content.ok).toBe(false);
+    expect(content.error).toContain('ask_user is unavailable');
+  });
+
+  it('propagates an abort raised while waiting for the human', async () => {
+    const abortError = new Error('The operation was aborted.');
+    abortError.name = 'AbortError';
+    const { transport } = scriptedTransport([
+      llmResponse({
+        toolCalls: [{ id: 'c1', name: 'ask_user', arguments: JSON.stringify({ question: 'When?', options: ['A', 'B'] }) }],
+      }),
+    ]);
+
+    await expect(
+      runAgentTurn(
+        turnOptions({
+          transport,
+          userText: 'schedule it',
+          tools: [askUserTool()],
+          onAskUser: async () => {
+            throw abortError;
+          },
+        }),
+      ),
+    ).rejects.toBe(abortError);
+  });
+});
+
+describe('runAgentTurn tool details', () => {
+  it('collects artifacts from every tool in execution order without applying them', async () => {
+    const artifactTool = toolOf('import_timetable', () => ({
+      summary: 'prepared',
+      artifacts: [
+        {
+          kind: 'timetable' as const,
+          rows: [
+            {
+              id: 'row-1',
+              course: 'Math',
+              weekday: 1,
+              start: '08:00',
+              end: '09:40',
+              weeks: '1-16',
+            },
+          ],
+          warnings: ['check the teacher'],
+        },
+      ],
+    }));
+    const context = testContext();
+    const { transport } = scriptedTransport([
+      llmResponse({
+        toolCalls: [
+          { id: 'c1', name: 'import_timetable', arguments: '{}' },
+          { id: 'c2', name: 'import_timetable', arguments: '{}' },
+        ],
+      }),
+      llmResponse({ content: 'Preview ready.' }),
+    ]);
+
+    const result = await runAgentTurn(
+      turnOptions({ transport, userText: 'import', context, tools: [artifactTool] }),
+    );
+
+    expect(result.artifacts).toHaveLength(2);
+    expect(result.artifacts[0].rows[0].course).toBe('Math');
+    expect(result.artifacts[1].warnings).toEqual(['check the teacher']);
+    // The artifact is a preview: the tool must not have written anything.
+    expect(result.ops).toEqual([]);
+    expect(context.state.tree.nodeCount()).toBe(0);
+  });
+
+  it('awaits async tools and reports their result', async () => {
+    const asyncTool = toolOf('create_event', async () => {
+      await Promise.resolve();
+      return { summary: 'async done' };
+    });
+    const { transport } = scriptedTransport([
+      llmResponse({ toolCalls: [{ id: 'c1', name: 'create_event', arguments: '{}' }] }),
+      llmResponse({ content: 'Done.' }),
+    ]);
+
+    const result = await runAgentTurn(turnOptions({ transport, userText: 'go', tools: [asyncTool] }));
+    expect(result.steps).toEqual([{ tool: 'create_event', args: {}, summary: 'async done', ok: true }]);
+    expect(result.text).toBe('Done.');
+  });
+
+  it('sends attached images as user content parts', async () => {
+    const { transport, requests } = scriptedTransport([llmResponse({ content: 'ok' })]);
+    await runAgentTurn(
+      turnOptions({
+        transport,
+        userText: 'what is this?',
+        tools: [],
+        images: [{ id: 'img-1', dataUrl: 'data:image/png;base64,AAAA' }],
+      }),
+    );
+
+    expect(requests[0].messages[1]).toEqual({
+      role: 'user',
+      content: [
+        { type: 'text', text: 'what is this?' },
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } },
+      ],
+    });
+  });
+});
+
+function streamingTransport(response: ReturnType<typeof llmResponse>): { transport: LlmTransport } {
+  const transport: LlmTransport = {
+    async complete() {
+      throw new Error('the streaming path must be preferred');
+    },
+    async stream(_request, handlers: LlmStreamHandlers) {
+      handlers.onReasoningDelta?.('think');
+      handlers.onTextDelta?.('Hello');
+      handlers.onTextDelta?.(' world');
+      return response;
+    },
+  };
+  return { transport };
+}

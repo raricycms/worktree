@@ -37,6 +37,62 @@ export function recordingTextFetch(
   return { fetchImpl, calls };
 }
 
+/** A fetch response whose body is a real byte stream, for SSE parser tests. */
+export function streamResponse(
+  chunks: string[],
+  options: { status?: number; contentType?: string } = {},
+): {
+  status: number;
+  ok: boolean;
+  headers: { get(name: string): string | null };
+  body: ReadableStream<Uint8Array>;
+  text(): Promise<string>;
+} {
+  const status = options.status ?? 200;
+  const contentType = options.contentType ?? 'text/event-stream; charset=utf-8';
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+      controller.close();
+    },
+  });
+  return {
+    status,
+    ok: status >= 200 && status < 300,
+    headers: { get: (name) => (name.toLowerCase() === 'content-type' ? contentType : null) },
+    body,
+    text: async () => chunks.join(''),
+  };
+}
+
+/** A fetch that returns one streamed response and records its calls. */
+export function recordingStreamFetch(
+  chunks: string[],
+  options: { status?: number; contentType?: string } = {},
+): { fetchImpl: FetchLike; calls: CapturedFetchCall[] } {
+  const calls: CapturedFetchCall[] = [];
+  const fetchImpl: FetchLike = async (url, init) => {
+    calls.push({ url, init });
+    return streamResponse(chunks, options);
+  };
+  return { fetchImpl, calls };
+}
+
+/** Wraps SSE data payloads into the wire lines a provider emits. */
+export function sse(payloads: (string | Record<string, unknown>)[]): string[] {
+  return payloads.map((payload) => {
+    const text = typeof payload === 'string' ? payload : JSON.stringify(payload);
+    return `data: ${text}\n\n`;
+  });
+}
+
+export function streamChunk(delta: Record<string, unknown>, finishReason?: string | null): Record<string, unknown> {
+  return {
+    choices: [{ delta, finish_reason: finishReason ?? null }],
+  };
+}
+
 export function llmResponse(partial: Partial<LlmResponse> = {}): LlmResponse {
   return {
     content: '',
@@ -127,7 +183,7 @@ export function toolOf(name: string, run: Tool['run']): Tool {
 
 /** A fake write tool: plans one `add` op under the root and applies it to ctx.state. */
 export function addNodeTool(name: string): Tool {
-  return toolOf(name, (args, ctx) => {
+  return toolOf(name, (_args, ctx) => {
     const op: Operation = { kind: 'add', parentId: ROOT_ID, id: ctx.newId(), name: 'from-test', weight: 0 };
     ctx.state.apply(op);
     return { summary: 'created', ops: [op] };

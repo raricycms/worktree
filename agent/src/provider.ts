@@ -3,6 +3,8 @@ import type {
   FetchLike,
   LlmRequest,
   LlmResponse,
+  LlmStreamHandlers,
+  LlmToolCall,
   LlmTransport,
   ProviderConfig,
   ToolDefinition,
@@ -20,6 +22,8 @@ export class ProviderError extends Error {
 }
 
 const CHAT_COMPLETIONS_SUFFIX = '/chat/completions';
+const SSE_CONTENT_TYPE = 'text/event-stream';
+const DONE_MARKER = '[DONE]';
 
 /**
  * Normalises a configured base URL to the chat-completions endpoint.
@@ -79,6 +83,51 @@ const errorEnvelopeSchema = z.object({
   error: z.object({ message: z.string() }),
 });
 
+/** One fragment of a streamed tool call: every string field may arrive in pieces. */
+const streamToolCallDeltaSchema = z.object({
+  index: z.number().int().optional(),
+  id: z.union([z.string(), z.null()]).optional(),
+  type: z.string().optional(),
+  function: z
+    .object({
+      name: z.union([z.string(), z.null()]).optional(),
+      arguments: z.union([z.string(), z.null()]).optional(),
+    })
+    .optional(),
+});
+
+const streamDeltaSchema = z.object({
+  content: z.union([z.string(), z.null()]).optional(),
+  reasoning_content: z.union([z.string(), z.null()]).optional(),
+  tool_calls: z.array(streamToolCallDeltaSchema).optional(),
+});
+
+const streamChoiceSchema = z.object({
+  delta: streamDeltaSchema.optional(),
+  finish_reason: z.union([z.string(), z.null()]).optional(),
+});
+
+const streamChunkSchema = z.object({
+  choices: z.array(streamChoiceSchema).optional(),
+  usage: wireUsageSchema.optional(),
+});
+
+interface ToolCallAccumulator {
+  id: string;
+  name: string;
+  arguments: string;
+}
+
+interface StreamAccumulator {
+  content: string;
+  reasoning: string;
+  toolCalls: Map<number, ToolCallAccumulator>;
+  finishReason: string;
+  usage?: { promptTokens: number; completionTokens: number };
+  /** Index of the most recent tool call, for providers that omit `index` after the first fragment. */
+  lastToolIndex: number;
+}
+
 /** Raw JSON body → model response, throwing `ProviderError` on any mismatch. */
 function parseCompletion(text: string, status: number): LlmResponse {
   const body = parseJson(text);
@@ -123,33 +172,199 @@ function parseCompletion(text: string, status: number): LlmResponse {
 export function createChatTransport(config: ProviderConfig, fetchImpl?: FetchLike): LlmTransport {
   const endpoint = chatCompletionsUrl(config.baseUrl);
   const doFetch: FetchLike = fetchImpl ?? globalThis.fetch;
+
+  function requestBody(request: LlmRequest, stream: boolean): Record<string, unknown> {
+    const body: Record<string, unknown> = {
+      model: config.model,
+      messages: request.messages,
+    };
+    if (stream) body.stream = true;
+    if (request.temperature !== undefined) body.temperature = request.temperature;
+    if (request.maxTokens !== undefined) body.max_tokens = request.maxTokens;
+    if (request.tools !== undefined && request.tools.length > 0) {
+      body.tools = request.tools.map(toWireTool);
+      body.tool_choice = 'auto';
+    }
+    return body;
+  }
+
+  async function post(request: LlmRequest, stream: boolean): ReturnType<FetchLike> {
+    return doFetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify(requestBody(request, stream)),
+      ...(request.signal === undefined ? {} : { signal: request.signal }),
+    });
+  }
+
   return {
     async complete(request: LlmRequest): Promise<LlmResponse> {
-      const body: Record<string, unknown> = {
-        model: config.model,
-        messages: request.messages,
-      };
-      if (request.temperature !== undefined) body.temperature = request.temperature;
-      if (request.maxTokens !== undefined) body.max_tokens = request.maxTokens;
-      if (request.tools !== undefined && request.tools.length > 0) {
-        body.tools = request.tools.map(toWireTool);
-        body.tool_choice = 'auto';
-      }
-      const response = await doFetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${config.apiKey}`,
-        },
-        body: JSON.stringify(body),
-        ...(request.signal === undefined ? {} : { signal: request.signal }),
-      });
+      const response = await post(request, false);
       const text = await response.text();
       if (!response.ok) {
         throw new ProviderError(providerErrorMessage(text, response.status), response.status);
       }
       return parseCompletion(text, response.status);
     },
+
+    async stream(request: LlmRequest, handlers: LlmStreamHandlers): Promise<LlmResponse> {
+      const response = await post(request, true);
+      if (!response.ok) {
+        const text = await response.text();
+        throw new ProviderError(providerErrorMessage(text, response.status), response.status);
+      }
+      const contentType = (response.headers?.get('content-type') ?? '').trim().toLowerCase();
+      if (!contentType.startsWith(SSE_CONTENT_TYPE)) {
+        return parseCompletion(await response.text(), response.status);
+      }
+      const accumulator = newStreamAccumulator();
+      const body = response.body;
+      if (body === undefined || body === null) {
+        // Some fetch shims expose no stream body; the whole SSE payload is
+        // still readable as text, so parse the same lines from it.
+        parseSseText(await response.text(), accumulator, handlers);
+      } else {
+        await parseSseStream(body, accumulator, handlers);
+      }
+      return finishStream(accumulator, response.status);
+    },
+  };
+}
+
+function newStreamAccumulator(): StreamAccumulator {
+  return { content: '', reasoning: '', toolCalls: new Map(), finishReason: '', lastToolIndex: 0 };
+}
+
+async function parseSseStream(
+  body: ReadableStream<Uint8Array>,
+  accumulator: StreamAccumulator,
+  handlers: LlmStreamHandlers,
+): Promise<void> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let done = false;
+  while (!done) {
+    const result = await reader.read();
+    if (result.done) break;
+    buffer += decoder.decode(result.value, { stream: true });
+    let newline = buffer.indexOf('\n');
+    while (newline !== -1) {
+      const line = buffer.slice(0, newline).replace(/\r$/, '');
+      buffer = buffer.slice(newline + 1);
+      if (handleSseLine(line, accumulator, handlers)) {
+        done = true;
+        break;
+      }
+      newline = buffer.indexOf('\n');
+    }
+  }
+  if (!done) {
+    buffer += decoder.decode();
+    const trailing = buffer.replace(/\r$/, '');
+    if (trailing !== '') handleSseLine(trailing, accumulator, handlers);
+  }
+}
+
+function parseSseText(text: string, accumulator: StreamAccumulator, handlers: LlmStreamHandlers): void {
+  for (const rawLine of text.split('\n')) {
+    if (handleSseLine(rawLine.replace(/\r$/, ''), accumulator, handlers)) return;
+  }
+}
+
+/** Handles one SSE line; returns true when the stream signalled `[DONE]`. */
+function handleSseLine(line: string, accumulator: StreamAccumulator, handlers: LlmStreamHandlers): boolean {
+  // Blank lines separate events; comment lines (`: keep-alive`) and other
+  // fields (`event:`, `id:`, `retry:`) carry no payload for this API.
+  if (line === '' || line.startsWith(':')) return false;
+  if (!line.startsWith('data:')) return false;
+  const payload = line.slice('data:'.length).trim();
+  if (payload === '') return false;
+  if (payload === DONE_MARKER) return true;
+  applyStreamChunk(payload, accumulator, handlers);
+  return false;
+}
+
+function applyStreamChunk(payload: string, accumulator: StreamAccumulator, handlers: LlmStreamHandlers): void {
+  const body = parseJson(payload);
+  if (body === undefined) {
+    throw new ProviderError(`the provider sent malformed stream data: ${payload}`);
+  }
+  const envelope = errorEnvelopeSchema.safeParse(body);
+  if (envelope.success) throw new ProviderError(envelope.data.error.message);
+  const parsed = streamChunkSchema.safeParse(body);
+  if (!parsed.success) {
+    throw new ProviderError(`the provider sent an unexpected stream chunk: ${describeIssues(parsed.error)}`);
+  }
+  const usage = parsed.data.usage;
+  if (usage !== undefined) {
+    accumulator.usage = {
+      promptTokens: usage.prompt_tokens ?? 0,
+      completionTokens: usage.completion_tokens ?? 0,
+    };
+  }
+  for (const choice of parsed.data.choices ?? []) {
+    const delta = choice.delta;
+    if (delta !== undefined) {
+      if (typeof delta.content === 'string' && delta.content !== '') {
+        accumulator.content += delta.content;
+        handlers.onTextDelta?.(delta.content);
+      }
+      if (typeof delta.reasoning_content === 'string' && delta.reasoning_content !== '') {
+        accumulator.reasoning += delta.reasoning_content;
+        handlers.onReasoningDelta?.(delta.reasoning_content);
+      }
+      for (const fragment of delta.tool_calls ?? []) {
+        applyToolCallFragment(fragment, accumulator);
+      }
+    }
+    if (typeof choice.finish_reason === 'string' && choice.finish_reason !== '') {
+      accumulator.finishReason = choice.finish_reason;
+    }
+  }
+}
+
+function applyToolCallFragment(
+  fragment: z.infer<typeof streamToolCallDeltaSchema>,
+  accumulator: StreamAccumulator,
+): void {
+  // `index` identifies the call across chunks. Providers that omit it after
+  // the first fragment still send one call at a time, so the last index holds.
+  const index = fragment.index ?? accumulator.lastToolIndex;
+  accumulator.lastToolIndex = index;
+  let entry = accumulator.toolCalls.get(index);
+  if (entry === undefined) {
+    entry = { id: '', name: '', arguments: '' };
+    accumulator.toolCalls.set(index, entry);
+  }
+  if (typeof fragment.id === 'string') entry.id += fragment.id;
+  const fn = fragment.function;
+  if (fn !== undefined) {
+    if (typeof fn.name === 'string') entry.name += fn.name;
+    if (typeof fn.arguments === 'string') entry.arguments += fn.arguments;
+  }
+}
+
+function finishStream(accumulator: StreamAccumulator, status: number): LlmResponse {
+  const toolCalls: LlmToolCall[] = [...accumulator.toolCalls.entries()]
+    .sort((left, right) => left[0] - right[0])
+    .map(([, call]) => ({ id: call.id, name: call.name, arguments: call.arguments }));
+  if (toolCalls.length > 0) {
+    for (const call of toolCalls) {
+      if (call.name === '') {
+        throw new ProviderError(`the provider streamed a tool call without a name (HTTP ${status})`, status);
+      }
+    }
+  }
+  return {
+    content: accumulator.content,
+    reasoning: accumulator.reasoning,
+    toolCalls,
+    finishReason: accumulator.finishReason,
+    ...(accumulator.usage === undefined ? {} : { usage: accumulator.usage }),
   };
 }
 

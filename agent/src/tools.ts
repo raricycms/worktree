@@ -1,6 +1,16 @@
 import { z } from 'zod';
-import { civilFromTimestamp, dayFromTimestamp, endOfCivilDay, formatCivilDate, startOfCivilDay } from '@worktree/core';
-import type { Operation, Timestamp } from '@worktree/core';
+import {
+  ROOT_ID,
+  civilFromTimestamp,
+  dayFromTimestamp,
+  daysFromCivil,
+  displayPathOf,
+  endOfCivilDay,
+  formatCivilDate,
+  startOfCivilDay,
+  weekdayFromDays,
+} from '@worktree/core';
+import type { Node, Operation, Timestamp } from '@worktree/core';
 import { assertWeekday, dateStringOfDay, dayOfDateString } from './semester';
 import {
   planCancelEvent,
@@ -9,17 +19,26 @@ import {
   planCreateRecurring,
   planCreateTask,
   planUpdateEvent,
+  planUpdateTask,
 } from './planners';
-import { agendaItems, freeSlots, taskDetail, taskSummaries } from './read';
+import { agendaItems, findNodeById, findNodeByPath, freeSlots, taskDetail, taskSummaries } from './read';
 import { suggestTasks } from './recommend';
-import type { Tool, ToolContext, ToolRunResult, Weekday } from './types';
+import { parseWeeksSpec } from './weeks';
+import type { Semester, TimetableRow, Tool, ToolContext, ToolRunResult, Weekday } from './types';
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_PATTERN = /^\d{2}:\d{2}$/;
 const DEFAULT_AGENDA_DAYS = 7;
 const DEFAULT_FREE_MINUTES = 30;
 const DEFAULT_EVENT_REMIND_MINUTES = 15;
+const DEFAULT_TREE_DEPTH = 3;
+const MAX_TREE_NODES = 300;
+const MAX_TASKS_PER_BATCH = 30;
+const MAX_TIMETABLE_ROWS = 200;
 const WEEKDAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const CORE_WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const MINUTE_MS = 60 * 1000;
+const DAY_MINUTES = 24 * 60;
 
 const dateSchema = z.string().regex(DATE_PATTERN, 'expected YYYY-MM-DD');
 const timeSchema = z.string().regex(TIME_PATTERN, 'expected HH:mm');
@@ -29,14 +48,23 @@ const reminderMinutesSchema = z.number().int().min(0, 'must be a non-negative in
 const GET_AGENDA_SHAPE = `{from?: 'YYYY-MM-DD', to?: 'YYYY-MM-DD'}`;
 const SEARCH_TASKS_SHAPE = `{keyword?: string, include_completed?: boolean, overdue_only?: boolean, due_within_days?: number, path?: string, limit?: number}`;
 const GET_TASK_SHAPE = `{task_id: string}`;
+const GET_TREE_SHAPE = `{path?: string, depth?: number (1..20), include_completed?: boolean}`;
+const LIST_RULES_SHAPE = `{}`;
 const FIND_FREE_SLOTS_SHAPE = `{date: 'YYYY-MM-DD', min_minutes?: number}`;
 const SUGGEST_TASKS_SHAPE = `{date?: 'YYYY-MM-DD', available_minutes?: number, limit?: number}`;
 const CREATE_EVENT_SHAPE = `{title: string, date: 'YYYY-MM-DD', start_time: 'HH:mm', end_time: 'HH:mm', note?: string, location?: string, remind_minutes_before?: number}`;
 const CREATE_TASK_SHAPE = `{title: string, parent_path?: string, note?: string, due_date?: 'YYYY-MM-DD', due_time?: 'HH:mm', remind_minutes_before?: number}`;
+const CREATE_TASKS_SHAPE = `{tasks: ${CREATE_TASK_SHAPE}[] (1..30 items)}`;
 const CREATE_RECURRING_SHAPE = `{title: string, weekdays: number[] (ISO 1=Monday..7=Sunday), start_time: 'HH:mm', end_time: 'HH:mm', start_date: 'YYYY-MM-DD', until_date?: 'YYYY-MM-DD', note?: string}`;
 const UPDATE_EVENT_SHAPE = `{event_id: string, title?: string, date?: 'YYYY-MM-DD', start_time?: 'HH:mm', end_time?: 'HH:mm', remind_minutes_before?: number}`;
+const UPDATE_TASK_SHAPE = `{task_id: string, title?: string, note?: string, due_date?: 'YYYY-MM-DD', clear_deadline?: boolean, due_time?: 'HH:mm', remind_minutes_before?: number}`;
 const COMPLETE_TASK_SHAPE = `{task_id: string, completed?: boolean}`;
 const CANCEL_EVENT_SHAPE = `{event_id: string}`;
+const CANCEL_RECURRING_SHAPE = `{rule_id: string}`;
+const MOVE_NODE_SHAPE = `{node_id: string, parent_path: string}`;
+const DELETE_NODE_SHAPE = `{node_id: string, with_children?: boolean}`;
+const ASK_USER_SHAPE = `{question: string, options?: string[] (2..5 short answers)}`;
+const IMPORT_TIMETABLE_SHAPE = `{rows: {course: string, weekday: number (1..7), start: 'HH:mm', end: 'HH:mm', weeks?: string, teacher?: string, location?: string}[], warnings?: string[]}`;
 
 const getAgendaSchema = z.object({
   from: dateSchema.optional(),
@@ -53,6 +81,14 @@ const searchTasksSchema = z.object({
 });
 
 const getTaskSchema = z.object({ task_id: nonEmptySchema });
+
+const getTreeSchema = z.object({
+  path: nonEmptySchema.optional(),
+  depth: z.number().int().min(1).max(20).optional(),
+  include_completed: z.boolean().optional(),
+});
+
+const listRulesSchema = z.object({});
 
 const findFreeSlotsSchema = z.object({
   date: dateSchema,
@@ -84,6 +120,10 @@ const createTaskSchema = z.object({
   remind_minutes_before: reminderMinutesSchema.optional(),
 });
 
+const createTasksSchema = z.object({
+  tasks: z.array(createTaskSchema).min(1, 'at least one task').max(MAX_TASKS_PER_BATCH),
+});
+
 const createRecurringSchema = z.object({
   title: nonEmptySchema,
   weekdays: z.array(z.number().int().min(1).max(7)).min(1),
@@ -103,12 +143,54 @@ const updateEventSchema = z.object({
   remind_minutes_before: reminderMinutesSchema.optional(),
 });
 
+const updateTaskSchema = z.object({
+  task_id: nonEmptySchema,
+  title: nonEmptySchema.optional(),
+  note: z.string().optional(),
+  due_date: dateSchema.optional(),
+  clear_deadline: z.boolean().optional(),
+  due_time: timeSchema.optional(),
+  remind_minutes_before: reminderMinutesSchema.optional(),
+});
+
 const completeTaskSchema = z.object({
   task_id: nonEmptySchema,
   completed: z.boolean().optional(),
 });
 
 const cancelEventSchema = z.object({ event_id: nonEmptySchema });
+
+const cancelRecurringSchema = z.object({ rule_id: nonEmptySchema });
+
+const moveNodeSchema = z.object({
+  node_id: nonEmptySchema,
+  parent_path: nonEmptySchema,
+});
+
+const deleteNodeSchema = z.object({
+  node_id: nonEmptySchema,
+  with_children: z.boolean().optional(),
+});
+
+const askUserSchema = z.object({
+  question: nonEmptySchema,
+  options: z.array(nonEmptySchema).min(2, 'provide 2 to 5 short options').max(5, 'provide 2 to 5 short options').optional(),
+});
+
+const timetableRowInputSchema = z.object({
+  course: z.unknown().optional(),
+  weekday: z.unknown().optional(),
+  start: z.unknown().optional(),
+  end: z.unknown().optional(),
+  weeks: z.unknown().optional(),
+  teacher: z.unknown().optional(),
+  location: z.unknown().optional(),
+});
+
+const importTimetableSchema = z.object({
+  rows: z.array(timetableRowInputSchema).min(1, 'at least one row').max(MAX_TIMETABLE_ROWS),
+  warnings: z.array(z.string()).optional(),
+});
 
 /**
  * Parses tool arguments. A failure names the tool, the expected shape and the
@@ -156,6 +238,31 @@ function formatRange(start: Timestamp, end: Timestamp, tzOffset: number): string
 
 function applyToolOps(ctx: ToolContext, ops: Operation[]): void {
   for (const op of ops) ctx.state.apply(op);
+}
+
+/**
+ * Validates a planned batch on a clone before touching the live dry-run state,
+ * so a late rejection leaves `ctx.state` exactly as it was.
+ */
+function commitOps(ctx: ToolContext, ops: Operation[]): void {
+  const probe = ctx.state.clone();
+  for (const op of ops) probe.apply(op);
+  for (const op of ops) ctx.state.apply(op);
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** The next append position among a parent's children. */
+function nextWeight(parent: Node): number {
+  return parent.children.reduce((max, child) => Math.max(max, child.weight), 0) + 1;
+}
+
+function countDescendants(node: Node): number {
+  let count = 0;
+  for (const child of node.children) count += 1 + countDescendants(child);
+  return count;
 }
 
 function runGetAgenda(args: unknown, ctx: ToolContext): ToolRunResult {
@@ -223,6 +330,107 @@ function runGetTask(args: unknown, ctx: ToolContext): ToolRunResult {
       ? 'Linked block: none'
       : `Linked block: [${detail.block.id}] ${detail.block.name} ${formatRange(detail.block.start, detail.block.end, ctx.tzOffset)}`,
   );
+  return { summary: lines.join('\n') };
+}
+
+function visibleChildren(node: Node, includeCompleted: boolean): Node[] {
+  return node.children.filter((child) => includeCompleted || !child.status);
+}
+
+/** Visible nodes including `node` itself, counting levels from `level` down to `depth`. */
+function countTreeNodes(node: Node, level: number, depth: number, includeCompleted: boolean): number {
+  let total = 1;
+  if (level >= depth) return total;
+  for (const child of visibleChildren(node, includeCompleted)) {
+    total += countTreeNodes(child, level + 1, depth, includeCompleted);
+  }
+  return total;
+}
+
+function runGetTree(args: unknown, ctx: ToolContext): ToolRunResult {
+  const input = parseArgs('get_tree', getTreeSchema, GET_TREE_SHAPE, args);
+  const path = input.path ?? '/';
+  const scope = findNodeByPath(ctx.state, path);
+  if (scope === undefined) throw new Error(`unknown path: ${path}`);
+  const depth = input.depth ?? DEFAULT_TREE_DEPTH;
+  const includeCompleted = input.include_completed ?? false;
+  const isRoot = scope.id === ROOT_ID;
+  // The scope node always shows (the caller named it); depth bounds the levels below it.
+  const total = isRoot
+    ? visibleChildren(scope, includeCompleted).reduce(
+        (sum, child) => sum + countTreeNodes(child, 1, depth, includeCompleted),
+        0,
+      )
+    : countTreeNodes(scope, 0, depth, includeCompleted);
+
+  const lines: string[] = [`Tree at ${path} (depth ${depth}):`];
+  let shown = 0;
+  const emit = (node: Node, level: number): void => {
+    const indent = ' '.repeat(Math.max(0, level - (isRoot ? 1 : 0)) * 2);
+    lines.push(`${indent}- [${node.id}] ${node.name}${node.status ? ' (completed)' : ''}`);
+    shown++;
+  };
+  const render = (node: Node, level: number): void => {
+    if (shown >= MAX_TREE_NODES) return;
+    emit(node, level);
+    if (level >= depth) return;
+    for (const child of visibleChildren(node, includeCompleted)) {
+      if (shown >= MAX_TREE_NODES) return;
+      render(child, level + 1);
+    }
+  };
+  if (!isRoot) emit(scope, 0);
+  for (const child of visibleChildren(scope, includeCompleted)) {
+    if (shown >= MAX_TREE_NODES) break;
+    render(child, 1);
+  }
+  if (total === 0) lines.push('(no nodes)');
+  if (total > shown) lines.push(`- ... ${total - shown} more`);
+  return { summary: lines.join('\n') };
+}
+
+function ruleWeekdays(rule: { freq: string; byDay?: number[]; startDate: { year: number; month: number; day: number } }): string {
+  if (rule.freq !== 'weekly') return '';
+  let coreDays = rule.byDay;
+  if (coreDays === undefined || coreDays.length === 0) {
+    const day = weekdayFromDays(daysFromCivil(rule.startDate.year, rule.startDate.month, rule.startDate.day));
+    coreDays = [day];
+  }
+  const names = [...coreDays]
+    .sort((a, b) => a - b)
+    .map((day) => CORE_WEEKDAY_NAMES[day] ?? `day ${day}`);
+  return names.join(', ');
+}
+
+function ruleTimeRange(rule: { timeOfDay: { hour: number; minute: number }; duration: Timestamp }): string {
+  const startMinutes = rule.timeOfDay.hour * 60 + rule.timeOfDay.minute;
+  const endMinutes = startMinutes + Math.round(rule.duration / MINUTE_MS);
+  const dayOffset = Math.floor(endMinutes / DAY_MINUTES);
+  const endClock = `${pad2(Math.floor((endMinutes % DAY_MINUTES) / 60))}:${pad2(endMinutes % 60)}`;
+  const range = `${pad2(rule.timeOfDay.hour)}:${pad2(rule.timeOfDay.minute)}-${endClock}`;
+  return dayOffset === 0 ? range : `${range} (+${dayOffset}d)`;
+}
+
+function runListRules(args: unknown, ctx: ToolContext): ToolRunResult {
+  parseArgs('list_rules', listRulesSchema, LIST_RULES_SHAPE, args);
+  const rules = [...ctx.state.calendar.getRules()].sort(
+    (left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : left.id < right.id ? -1 : 1),
+  );
+  if (rules.length === 0) return { summary: 'No recurring rules.' };
+  const lines = rules.map((rule) => {
+    const parts: string[] = [`[${rule.id}] ${rule.name}`];
+    const days = ruleWeekdays(rule);
+    if (days !== '') parts.push(days);
+    parts.push(`${ruleTimeRange(rule)} (${rule.freq}, every ${rule.interval})`);
+    parts.push(`first ${formatCivilDate(rule.startDate)}`);
+    if (rule.until !== undefined) {
+      const until = civilFromTimestamp(rule.until, rule.tzOffset);
+      parts.push(`until ${formatCivilDate(until.date)}`);
+    }
+    if (!rule.active) parts.push('inactive');
+    if (rule.note !== '') parts.push(`note: ${rule.note}`);
+    return `- ${parts.join(' — ')}`;
+  });
   return { summary: lines.join('\n') };
 }
 
@@ -303,6 +511,38 @@ function runCreateTask(args: unknown, ctx: ToolContext): ToolRunResult {
   };
 }
 
+function runCreateTasks(args: unknown, ctx: ToolContext): ToolRunResult {
+  const input = parseArgs('create_tasks', createTasksSchema, CREATE_TASKS_SHAPE, args);
+  const trial = ctx.state.clone();
+  const ops: Operation[] = [];
+  const lines: string[] = [];
+  input.tasks.forEach((item, index) => {
+    try {
+      const plan = planCreateTask(
+        trial,
+        {
+          title: item.title,
+          parentPath: item.parent_path,
+          note: item.note,
+          dueDate: item.due_date,
+          dueTime: item.due_time,
+          remindMinutesBefore: item.remind_minutes_before,
+        },
+        ctx,
+      );
+      ops.push(...plan.ops);
+      const deadline =
+        plan.deadline === undefined ? '' : `, deadline ${formatDateTime(plan.deadline, ctx.tzOffset)}`;
+      const reminder = plan.reminderId === undefined ? '' : ', reminder set';
+      lines.push(`${index + 1}. ${plan.displayPath} (node ${plan.nodeId}${deadline}${reminder})`);
+    } catch (error) {
+      throw new Error(`create_tasks: task ${index + 1} ("${item.title}"): ${messageOf(error)}`);
+    }
+  });
+  commitOps(ctx, ops);
+  return { summary: `Created ${input.tasks.length} tasks:\n${lines.join('\n')}`, ops };
+}
+
 function runCreateRecurring(args: unknown, ctx: ToolContext): ToolRunResult {
   const input = parseArgs('create_recurring', createRecurringSchema, CREATE_RECURRING_SHAPE, args);
   const trial = ctx.state.clone();
@@ -352,6 +592,51 @@ function runUpdateEvent(args: unknown, ctx: ToolContext): ToolRunResult {
   };
 }
 
+function runUpdateTask(args: unknown, ctx: ToolContext): ToolRunResult {
+  const input = parseArgs('update_task', updateTaskSchema, UPDATE_TASK_SHAPE, args);
+  const before = ctx.state.tree.getNode(input.task_id);
+  if (before === undefined || before.id === ROOT_ID) throw new Error(`unknown task id: ${input.task_id}`);
+  const trial = ctx.state.clone();
+  const plan = planUpdateTask(
+    trial,
+    {
+      taskId: input.task_id,
+      title: input.title,
+      note: input.note,
+      dueDate: input.due_date,
+      dueTime: input.due_time,
+      clearDeadline: input.clear_deadline,
+      remindMinutesBefore: input.remind_minutes_before,
+    },
+    ctx,
+  );
+  applyToolOps(ctx, plan.ops);
+
+  const parts: string[] = [];
+  if (input.title !== undefined && input.title.trim() !== before.name) {
+    parts.push(`renamed to "${input.title.trim()}"`);
+  }
+  if (input.note !== undefined) parts.push(input.note.trim() === '' ? 'note cleared' : 'note updated');
+  if (input.clear_deadline === true) parts.push('deadline cleared');
+  else if (plan.deadline !== undefined && (input.due_date !== undefined || input.due_time !== undefined)) {
+    parts.push(`deadline ${formatDateTime(plan.deadline, ctx.tzOffset)}`);
+  }
+  if (input.remind_minutes_before !== undefined) {
+    parts.push(
+      input.remind_minutes_before === 0
+        ? 'deadline reminder removed'
+        : `reminder ${input.remind_minutes_before} min before`,
+    );
+  } else if ((input.due_date !== undefined || input.due_time !== undefined) && plan.reminderIds.length > 0) {
+    parts.push('deadline reminders moved');
+  }
+  const summary =
+    parts.length === 0
+      ? `Updated task ${plan.nodeId} "${before.name}": no changes.`
+      : `Updated task ${plan.nodeId} "${before.name}": ${parts.join(', ')}.`;
+  return { summary, ops: plan.ops };
+}
+
 function runCompleteTask(args: unknown, ctx: ToolContext): ToolRunResult {
   const input = parseArgs('complete_task', completeTaskSchema, COMPLETE_TASK_SHAPE, args);
   const trial = ctx.state.clone();
@@ -374,17 +659,155 @@ function runCancelEvent(args: unknown, ctx: ToolContext): ToolRunResult {
   return { summary: `Cancelled event ${plan.blockId}${name}${node}.`, ops: plan.ops };
 }
 
-/**
- * The tool set exposed to the model. Executors are synchronous and dry-run
- * their writes on `ctx.state`, so later tool calls in the same turn see them.
- */
+function runCancelRecurring(args: unknown, ctx: ToolContext): ToolRunResult {
+  const input = parseArgs('cancel_recurring', cancelRecurringSchema, CANCEL_RECURRING_SHAPE, args);
+  const rule = ctx.state.calendar.getRules().find((candidate) => candidate.id === input.rule_id);
+  if (rule === undefined) throw new Error(`unknown rule id: ${input.rule_id}`);
+  const ops: Operation[] = [{ kind: 'remove_block_rule', id: rule.id }];
+  commitOps(ctx, ops);
+  return { summary: `Cancelled recurring rule ${rule.id} "${rule.name}".`, ops };
+}
+
+function runMoveNode(args: unknown, ctx: ToolContext): ToolRunResult {
+  const input = parseArgs('move_node', moveNodeSchema, MOVE_NODE_SHAPE, args);
+  const node = findNodeById(ctx.state, input.node_id);
+  if (node === undefined) throw new Error(`unknown node id: ${input.node_id}`);
+  const parent = findNodeByPath(ctx.state, input.parent_path);
+  if (parent === undefined) throw new Error(`unknown path: ${input.parent_path}`);
+  const ops: Operation[] = [{ kind: 'move', id: node.id, parentId: parent.id, weight: nextWeight(parent) }];
+  commitOps(ctx, ops);
+  const path = displayPathOf(ctx.state.tree, node.id);
+  return { summary: `Moved node ${node.id} "${node.name}" to ${path === null ? input.parent_path : path}.`, ops };
+}
+
+function runDeleteNode(args: unknown, ctx: ToolContext): ToolRunResult {
+  const input = parseArgs('delete_node', deleteNodeSchema, DELETE_NODE_SHAPE, args);
+  const node = findNodeById(ctx.state, input.node_id);
+  if (node === undefined) throw new Error(`unknown node id: ${input.node_id}`);
+  if (node.children.length > 0 && input.with_children !== true) {
+    throw new Error(
+      `cannot delete "${node.name}": it has ${node.children.length} child node(s); pass with_children: true to delete the whole subtree, or move/remove the children first`,
+    );
+  }
+  const block = ctx.state.calendar.getBlocks().find((candidate) => candidate.nodeId === node.id);
+  if (block !== undefined) {
+    throw new Error(
+      `cannot delete "${node.name}": it is linked to calendar event "${block.name}" ${formatRange(block.start, block.end, ctx.tzOffset)}; cancel the event first with cancel_event`,
+    );
+  }
+  const descendants = countDescendants(node);
+  const ops: Operation[] = [{ kind: 'remove', id: node.id }];
+  commitOps(ctx, ops);
+  const suffix = descendants === 0 ? '' : ` and ${descendants} descendant node(s)`;
+  return { summary: `Deleted node ${node.id} "${node.name}"${suffix}.`, ops };
+}
+
+async function runAskUser(args: unknown, ctx: ToolContext): Promise<ToolRunResult> {
+  const input = parseArgs('ask_user', askUserSchema, ASK_USER_SHAPE, args);
+  const question = input.question.trim();
+  if (question === '') throw new Error('ask_user: question must not be empty');
+  const options = (input.options ?? []).map((option) => option.trim());
+  for (const option of options) {
+    if (option === '') throw new Error('ask_user: every option must be a non-empty short answer');
+  }
+  const ask = ctx.askUser;
+  if (ask === undefined) {
+    throw new Error(
+      'ask_user is unavailable in this run: no interactive channel is attached, so ask the user in your reply instead',
+    );
+  }
+  const answer = await ask({ question, options });
+  return { summary: `User answered: ${answer}` };
+}
+
+/** Strict HH:mm for preview rows, where a malformed time must fail the call. */
+function parseRowClock(value: string): { hour: number; minute: number } | null {
+  const match = /^(\d{2}):(\d{2})$/.exec(value);
+  if (match === null) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour > 23 || minute > 59) return null;
+  return { hour, minute };
+}
+
+function runImportTimetable(args: unknown, ctx: ToolContext): ToolRunResult {
+  const input = parseArgs('import_timetable', importTimetableSchema, IMPORT_TIMETABLE_SHAPE, args);
+  const semester: Semester | null = ctx.semester;
+  const rows: TimetableRow[] = [];
+  input.rows.forEach((raw, index) => {
+    const fail = (field: string, reason: string): Error => {
+      return new Error(`import_timetable: row ${index + 1}, field "${field}": ${reason}`);
+    };
+    if (typeof raw.course !== 'string' || raw.course.trim() === '') {
+      throw fail('course', 'must be a non-empty string');
+    }
+    const course = raw.course.trim();
+    if (typeof raw.weekday !== 'number') throw fail('weekday', 'must be an ISO weekday number 1..7');
+    const weekday = raw.weekday;
+    if (!Number.isInteger(weekday) || weekday < 1 || weekday > 7) {
+      throw fail('weekday', `must be an ISO weekday 1 (Monday) .. 7 (Sunday), got ${String(weekday)}`);
+    }
+    assertWeekday(weekday);
+    if (typeof raw.start !== 'string') throw fail('start', 'must be an HH:mm string');
+    const startText = raw.start.trim();
+    const start = parseRowClock(startText);
+    if (start === null) throw fail('start', `must be HH:mm, got "${startText}"`);
+    if (typeof raw.end !== 'string') throw fail('end', 'must be an HH:mm string');
+    const endText = raw.end.trim();
+    const end = parseRowClock(endText);
+    if (end === null) throw fail('end', `must be HH:mm, got "${endText}"`);
+    if (start.hour * 60 + start.minute >= end.hour * 60 + end.minute) {
+      throw fail('end', `must be after start (${startText}-${endText})`);
+    }
+    let weeks: string;
+    if (raw.weeks === undefined || raw.weeks === '') {
+      if (semester === null) throw fail('weeks', 'is required when no semester is configured (e.g. "1-16")');
+      weeks = `1-${semester.totalWeeks}`;
+    } else {
+      if (typeof raw.weeks !== 'string') throw fail('weeks', 'must be a string');
+      weeks = raw.weeks.trim();
+      try {
+        parseWeeksSpec(weeks);
+      } catch (error) {
+        throw fail('weeks', `cannot read "${weeks}": ${messageOf(error)}`);
+      }
+    }
+    if (raw.teacher !== undefined && typeof raw.teacher !== 'string') throw fail('teacher', 'must be a string');
+    const teacher = typeof raw.teacher === 'string' ? raw.teacher.trim() : undefined;
+    if (raw.location !== undefined && typeof raw.location !== 'string') throw fail('location', 'must be a string');
+    const location = typeof raw.location === 'string' ? raw.location.trim() : undefined;
+    const row: TimetableRow = {
+      id: ctx.newId(),
+      course,
+      weekday,
+      start: startText,
+      end: endText,
+      weeks,
+    };
+    if (teacher !== undefined && teacher !== '') row.teacher = teacher;
+    if (location !== undefined && location !== '') row.location = location;
+    rows.push(row);
+  });
+  const warnings = (input.warnings ?? []).map((warning) => warning.trim()).filter((warning) => warning !== '');
+  const count = `${rows.length} row${rows.length === 1 ? '' : 's'}`;
+  const semesterNote =
+    semester === null
+      ? ' No semester is configured yet, so the user must set the teaching calendar before confirming.'
+      : '';
+  return {
+    summary: `Prepared a timetable preview with ${count}; the user confirms or edits it in the import card.${semesterNote}`,
+    artifacts: [{ kind: 'timetable', rows, warnings }],
+  };
+}
+
+/** The tool set exposed to the model. Write tools dry-run on `ctx.state`. */
 export function createTools(): Tool[] {
   return [
     {
       definition: {
         name: 'get_agenda',
         description:
-          'List blocks and recurring occurrences in a date range. Use it before creating or moving an event to spot conflicts.',
+          'List blocks and recurring occurrences in a date range. Use it before creating or moving an event to spot conflicts, to answer "what does my day look like", and to copy block or node ids for update/cancel tools.',
         parameters: {
           type: 'object',
           properties: {
@@ -399,12 +822,13 @@ export function createTools(): Tool[] {
     {
       definition: {
         name: 'search_tasks',
-        description: 'Find tasks by keyword, deadline, completion and path. Returns ids for follow-up calls.',
+        description:
+          'Find tasks by keyword, deadline, completion and path. Returns task ids used by get_task, update_task, complete_task, move_node and delete_node.',
         parameters: {
           type: 'object',
           properties: {
             keyword: { type: 'string', description: 'Case-insensitive match on name or note.' },
-            include_completed: { type: 'boolean', description: 'Also return completed tasks.' },
+            include_completed: { type: 'boolean', description: 'Also return completed tasks (default false).' },
             overdue_only: { type: 'boolean', description: 'Only open tasks past their deadline.' },
             due_within_days: { type: 'integer', minimum: 0, description: 'Only tasks due within N days.' },
             path: { type: 'string', description: 'Limit to a display path and its descendants, e.g. /tmp.' },
@@ -418,10 +842,11 @@ export function createTools(): Tool[] {
     {
       definition: {
         name: 'get_task',
-        description: 'One task with its ancestors, children, reminders and linked calendar block.',
+        description:
+          'Inspect one task with its ancestors, children, reminders and linked calendar block. Call it before editing an ambiguous task so the change targets the right node.',
         parameters: {
           type: 'object',
-          properties: { task_id: { type: 'string', description: 'Node id from search_tasks or suggest_tasks.' } },
+          properties: { task_id: { type: 'string', description: 'Node id from search_tasks, get_tree or suggest_tasks.' } },
           required: ['task_id'],
         },
       },
@@ -429,8 +854,35 @@ export function createTools(): Tool[] {
     },
     {
       definition: {
+        name: 'get_tree',
+        description:
+          'Show the workspace tree as text with node ids and completion marks. Use it to understand structure before moving or deleting nodes, or when the user refers to a folder.',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'Scope path, e.g. /tmp or / (default /).' },
+            depth: { type: 'integer', minimum: 1, maximum: 20, description: 'Levels to show below the scope (default 3).' },
+            include_completed: { type: 'boolean', description: 'Also list completed nodes (default false).' },
+          },
+          required: [],
+        },
+      },
+      run: (args, ctx) => runGetTree(args, ctx),
+    },
+    {
+      definition: {
+        name: 'list_rules',
+        description:
+          'List recurring calendar rules with ids, weekdays, time range, first and last date, and note. Use it to find a rule before editing or cancelling it.',
+        parameters: { type: 'object', properties: {}, required: [] },
+      },
+      run: (args, ctx) => runListRules(args, ctx),
+    },
+    {
+      definition: {
         name: 'find_free_slots',
-        description: 'Free intervals of at least min_minutes inside the 08:00-23:00 local working window.',
+        description:
+          'Free intervals of at least min_minutes inside the 08:00-23:00 local working window of a day. Use it for day planning before recommending a time.',
         parameters: {
           type: 'object',
           properties: {
@@ -445,7 +897,8 @@ export function createTools(): Tool[] {
     {
       definition: {
         name: 'suggest_tasks',
-        description: 'Rank actionable tasks: overdue first, then deadline proximity, then tasks without a deadline.',
+        description:
+          'Rank actionable tasks: overdue first, then deadline proximity, then tasks without a deadline. Use it in day planning together with get_agenda and find_free_slots.',
         parameters: {
           type: 'object',
           properties: {
@@ -462,14 +915,14 @@ export function createTools(): Tool[] {
       definition: {
         name: 'create_event',
         description:
-          'Create a one-off event: a node under /events, its linked calendar block and an explicit reminder.',
+          'Create a one-off event: a node under /events, its linked calendar block and an explicit reminder. Requires a concrete date and start time; call ask_user first when either is missing. Use get_agenda first when the time could collide.',
         parameters: {
           type: 'object',
           properties: {
             title: { type: 'string', description: 'Event title; also the node name.' },
             date: { type: 'string', description: 'Event day, YYYY-MM-DD.' },
             start_time: { type: 'string', description: 'Start time, HH:mm (24h).' },
-            end_time: { type: 'string', description: 'End time, HH:mm (24h), after start_time.' },
+            end_time: { type: 'string', description: 'End time, HH:mm (24h), after start_time; for a start-only request pass one hour after start_time.' },
             note: { type: 'string', description: 'Optional details.' },
             location: { type: 'string', description: 'Optional location; stored in the node note.' },
             remind_minutes_before: {
@@ -486,7 +939,8 @@ export function createTools(): Tool[] {
     {
       definition: {
         name: 'create_task',
-        description: 'Create a task node, optionally with a deadline and a reminder.',
+        description:
+          'Create one task node, optionally with a deadline and a reminder. Use create_tasks instead when the user lists several items at once.',
         parameters: {
           type: 'object',
           properties: {
@@ -508,8 +962,45 @@ export function createTools(): Tool[] {
     },
     {
       definition: {
+        name: 'create_tasks',
+        description:
+          'Create several task nodes in one atomic call (1..30 items). If any item is invalid the whole batch is rejected and nothing is created, so fix the reported item and retry. Use it for screenshots, notices and lists of action items.',
+        parameters: {
+          type: 'object',
+          properties: {
+            tasks: {
+              type: 'array',
+              minItems: 1,
+              maxItems: MAX_TASKS_PER_BATCH,
+              description: 'Task items with the same shape as create_task.',
+              items: {
+                type: 'object',
+                properties: {
+                  title: { type: 'string', description: 'Task title.' },
+                  parent_path: { type: 'string', description: 'Parent display path (default /tmp).' },
+                  note: { type: 'string', description: 'Short quote or context from the source.' },
+                  due_date: { type: 'string', description: 'Deadline day, YYYY-MM-DD.' },
+                  due_time: { type: 'string', description: 'Deadline time, HH:mm (default 23:59).' },
+                  remind_minutes_before: {
+                    type: 'integer',
+                    minimum: 0,
+                    description: 'Reminder minutes before the deadline; requires due_date.',
+                  },
+                },
+                required: ['title'],
+              },
+            },
+          },
+          required: ['tasks'],
+        },
+      },
+      run: (args, ctx) => runCreateTasks(args, ctx),
+    },
+    {
+      definition: {
         name: 'create_recurring',
-        description: 'Create one weekly calendar rule (single block rule) for the given weekdays and time range.',
+        description:
+          'Create one weekly calendar rule for explicit weekdays and a time range. Only for a single weekly rule the user described; for a timetable grid use import_timetable instead (never create one rule per cell).',
         parameters: {
           type: 'object',
           properties: {
@@ -533,7 +1024,8 @@ export function createTools(): Tool[] {
     {
       definition: {
         name: 'update_event',
-        description: 'Patch an existing block and its helper node: title, date, time range or reminder.',
+        description:
+          'Patch an existing block and its helper node: title, date, time range or reminder. Resolve the event id with get_agenda first and mention the old → new time in the reply.',
         parameters: {
           type: 'object',
           properties: {
@@ -555,8 +1047,34 @@ export function createTools(): Tool[] {
     },
     {
       definition: {
+        name: 'update_task',
+        description:
+          'Patch one task: title, note, deadline or deadline reminder. Use it to reschedule or rename instead of recreating the task. Pass due_date (with optional due_time) to move the deadline; the reminder tied to the old deadline moves with it. clear_deadline removes the deadline and its reminder.',
+        parameters: {
+          type: 'object',
+          properties: {
+            task_id: { type: 'string', description: 'Node id from search_tasks, get_task or get_tree.' },
+            title: { type: 'string', description: 'New task name (also renames its deadline reminder).' },
+            note: { type: 'string', description: 'New note; an empty string clears it.' },
+            due_date: { type: 'string', description: 'New deadline day, YYYY-MM-DD.' },
+            due_time: { type: 'string', description: 'New deadline time, HH:mm (requires due_date, or an existing deadline).' },
+            clear_deadline: { type: 'boolean', description: 'Remove the deadline together with its reminder.' },
+            remind_minutes_before: {
+              type: 'integer',
+              minimum: 0,
+              description: 'Replace the deadline reminder with one this many minutes before (0 removes it).',
+            },
+          },
+          required: ['task_id'],
+        },
+      },
+      run: (args, ctx) => runUpdateTask(args, ctx),
+    },
+    {
+      definition: {
         name: 'complete_task',
-        description: 'Mark a task (or an event node) completed, or reopen it.',
+        description:
+          'Mark a task (or an event node) completed, or reopen it. Completing a parent requires all of its children to be completed first.',
         parameters: {
           type: 'object',
           properties: {
@@ -571,7 +1089,8 @@ export function createTools(): Tool[] {
     {
       definition: {
         name: 'cancel_event',
-        description: 'Remove an event block and its helper node when the node has no children.',
+        description:
+          'Remove an event block and its helper node. Rejected when the helper node has children; ask the user how to handle them first.',
         parameters: {
           type: 'object',
           properties: {
@@ -581,6 +1100,115 @@ export function createTools(): Tool[] {
         },
       },
       run: (args, ctx) => runCancelEvent(args, ctx),
+    },
+    {
+      definition: {
+        name: 'cancel_recurring',
+        description:
+          'Delete one recurring calendar rule and its occurrences. Resolve the rule id with list_rules first; an unknown id is an error. This cannot restore single skipped occurrences.',
+        parameters: {
+          type: 'object',
+          properties: { rule_id: { type: 'string', description: 'Rule id from list_rules.' } },
+          required: ['rule_id'],
+        },
+      },
+      run: (args, ctx) => runCancelRecurring(args, ctx),
+    },
+    {
+      definition: {
+        name: 'move_node',
+        description:
+          'Move a node (with its subtree) under another folder. The target path must exist. Moving a node into its own subtree is rejected.',
+        parameters: {
+          type: 'object',
+          properties: {
+            node_id: { type: 'string', description: 'Node id from search_tasks or get_tree.' },
+            parent_path: { type: 'string', description: 'Destination folder display path, e.g. /tmp or /.' },
+          },
+          required: ['node_id', 'parent_path'],
+        },
+      },
+      run: (args, ctx) => runMoveNode(args, ctx),
+    },
+    {
+      definition: {
+        name: 'delete_node',
+        description:
+          'Delete a node permanently. Refused when the node has children unless with_children is true, and refused when a calendar block links it (cancel the event first). Confirm destructive deletes with the user via ask_user.',
+        parameters: {
+          type: 'object',
+          properties: {
+            node_id: { type: 'string', description: 'Node id from search_tasks or get_tree.' },
+            with_children: { type: 'boolean', description: 'true = delete the whole subtree (default false).' },
+          },
+          required: ['node_id'],
+        },
+      },
+      run: (args, ctx) => runDeleteNode(args, ctx),
+    },
+    {
+      definition: {
+        name: 'import_timetable',
+        description:
+          'Prepare an editable timetable preview from extracted class rows. Pass every course × weekday × time × week row in ONE call; the tool validates each row and returns a preview card, it writes nothing. The user confirms or edits the card afterwards. Never use create_recurring for a timetable grid.',
+        parameters: {
+          type: 'object',
+          properties: {
+            rows: {
+              type: 'array',
+              minItems: 1,
+              maxItems: MAX_TIMETABLE_ROWS,
+              description: 'Extracted class rows; a bad row fails the call with its 1-based index and field.',
+              items: {
+                type: 'object',
+                properties: {
+                  course: { type: 'string', description: 'Course name exactly as printed.' },
+                  weekday: { type: 'integer', minimum: 1, maximum: 7, description: 'ISO weekday (1=Monday .. 7=Sunday).' },
+                  start: { type: 'string', description: 'Start time, HH:mm.' },
+                  end: { type: 'string', description: 'End time, HH:mm.' },
+                  weeks: {
+                    type: 'string',
+                    description:
+                      'Teaching weeks, e.g. 1-16, 1-16单, 2-16双. Required when no semester is configured; otherwise defaults to the whole semester (1-<totalWeeks>).',
+                  },
+                  teacher: { type: 'string', description: 'Optional teacher as printed.' },
+                  location: { type: 'string', description: 'Optional location as printed.' },
+                },
+                required: ['course', 'weekday', 'start', 'end'],
+              },
+            },
+            warnings: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Anything unreadable or ambiguous that the user should review in the card.',
+            },
+          },
+          required: ['rows'],
+        },
+      },
+      run: (args, ctx) => runImportTimetable(args, ctx),
+    },
+    {
+      definition: {
+        name: 'ask_user',
+        description:
+          'Ask the human one short question and pause the turn until they answer. Use this instead of asking in prose whenever a required detail is missing or two readings are plausible. Provide 2-5 short options; omit options only when a free-text answer is needed. Ask one question at a time.',
+        parameters: {
+          type: 'object',
+          properties: {
+            question: { type: 'string', description: 'One short question, in the user’s language.' },
+            options: {
+              type: 'array',
+              items: { type: 'string' },
+              minItems: 2,
+              maxItems: 5,
+              description: 'Short answer buttons (2-5), one of which may be "use the default". Omit for free text.',
+            },
+          },
+          required: ['question'],
+        },
+      },
+      run: (args, ctx) => runAskUser(args, ctx),
     },
   ];
 }

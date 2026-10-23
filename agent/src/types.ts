@@ -87,6 +87,8 @@ export interface ToolContext {
   tzOffset: number;
   semester: Semester | null;
   newId: () => string;
+  /** Suspends the turn to ask the human; absent outside an interactive run. */
+  askUser?: (request: AskUserRequest) => Promise<string>;
 }
 
 export interface ToolRunResult {
@@ -94,11 +96,14 @@ export interface ToolRunResult {
   summary: string;
   /** Ops the tool planned; the caller applies them after validation. */
   ops?: Operation[];
+  /** Preview payloads the UI renders (e.g. an editable timetable). */
+  artifacts?: AgentArtifact[];
 }
 
 export interface Tool {
   definition: ToolDefinition;
-  run(args: unknown, ctx: ToolContext): ToolRunResult;
+  /** Async so a tool can wait for the human (`ask_user`). */
+  run(args: unknown, ctx: ToolContext): ToolRunResult | Promise<ToolRunResult>;
 }
 
 /** Injected clock/offset/id factory for the planners (no ambient time). */
@@ -249,6 +254,38 @@ export interface Suggestion {
   reason: string;
 }
 
+/** An image attached to a user turn; `dataUrl` is a `data:image/...` URL. */
+export interface AgentImage {
+  id: string;
+  dataUrl: string;
+  name?: string;
+}
+
+/** Where the model pauses for the human; options are 0..5 short answers. */
+export interface AskUserRequest {
+  question: string;
+  options: string[];
+}
+
+/** A question the model asked and the answer it got back in the same turn. */
+export interface AgentAsk extends AskUserRequest {
+  answer: string;
+}
+
+/** A payload the UI renders and the user acts on (confirm/edit) before any write. */
+export type AgentArtifact = {
+  kind: 'timetable';
+  rows: TimetableRow[];
+  warnings: string[];
+};
+
+/** Progress of one turn, for live rendering. Deltas are appended, never replaced. */
+export type AgentEvent =
+  | { type: 'reasoning'; delta: string }
+  | { type: 'text'; delta: string }
+  | { type: 'tool_start'; name: string; args: Record<string, unknown> }
+  | { type: 'tool_end'; name: string; ok: boolean; summary: string };
+
 /** A model message as the app stores it (text only; tools are not history). */
 export interface AgentHistoryMessage {
   role: 'user' | 'assistant';
@@ -268,6 +305,10 @@ export interface AgentTurnResult {
   /** Planned ops in tool execution order; the caller applies them. */
   ops: Operation[];
   steps: AgentStep[];
+  /** Preview artifacts in creation order; none of them writes anything. */
+  artifacts: AgentArtifact[];
+  /** Questions asked and answered during the turn. */
+  asks: AgentAsk[];
   /** True when the step budget ran out before the model stopped calling tools. */
   stoppedByLimit: boolean;
 }
@@ -277,12 +318,18 @@ export interface AgentTurnOptions {
   systemPrompt: string;
   history: AgentHistoryMessage[];
   userText: string;
+  /** Images attached to this turn, offloaded to the model as content parts. */
+  images?: AgentImage[];
   context: ToolContext;
   tools?: Tool[];
-  /** Default 6. */
+  /** Default 8. */
   maxSteps?: number;
   temperature?: number;
   signal?: AbortSignal;
+  /** Live progress; called for every streamed delta and tool transition. */
+  onEvent?: (event: AgentEvent) => void;
+  /** Blocks the turn until the human answers an `ask_user` call. */
+  onAskUser?: (request: AskUserRequest) => Promise<string>;
 }
 
 export interface ProviderConfig {
@@ -290,6 +337,12 @@ export interface ProviderConfig {
   baseUrl: string;
   apiKey: string;
   model: string;
+}
+
+/** Handlers for the streaming completion path. */
+export interface LlmStreamHandlers {
+  onTextDelta?: (delta: string) => void;
+  onReasoningDelta?: (delta: string) => void;
 }
 
 /** The subset of `fetch` the transport needs (works with browser and Node fetch). */
@@ -301,7 +354,13 @@ export type FetchLike = (
     body: string;
     signal?: AbortSignal;
   },
-) => Promise<{ status: number; ok: boolean; text(): Promise<string> }>;
+) => Promise<{
+  status: number;
+  ok: boolean;
+  headers?: { get(name: string): string | null };
+  body?: ReadableStream<Uint8Array> | null;
+  text(): Promise<string>;
+}>;
 
 export type LlmContentPart =
   | { type: 'text'; text: string }
@@ -347,4 +406,9 @@ export interface LlmResponse {
 
 export interface LlmTransport {
   complete(request: LlmRequest): Promise<LlmResponse>;
+  /**
+   * Streaming variant. Optional so simple/fake transports only implement
+   * `complete`; the turn loop falls back to it when absent.
+   */
+  stream?(request: LlmRequest, handlers: LlmStreamHandlers): Promise<LlmResponse>;
 }

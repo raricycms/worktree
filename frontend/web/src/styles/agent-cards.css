@@ -1,0 +1,596 @@
+/* Chat cards: message bubbles, markdown, tool steps, the ask card and the
+   editable timetable preview. Shared visual language lives in components.css;
+   every value here comes from tokens.css. */
+@layer components {
+  /* ---------- bubbles ---------- */
+  .agent-bubble {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--gap-sm);
+    max-width: 100%;
+    min-width: 0;
+    animation: agent-msg-in 200ms var(--ease-out) both;
+  }
+
+  .agent-bubble--assistant {
+    align-self: stretch;
+  }
+
+  .agent-bubble--user {
+    flex-direction: row-reverse;
+    align-self: flex-end;
+    max-width: 86%;
+  }
+
+  .agent-bubble__avatar {
+    display: grid;
+    place-content: center;
+    flex: none;
+    width: 28px;
+    height: 28px;
+    margin-top: 2px;
+    border-radius: 50%;
+    background: var(--brand-tint);
+    color: var(--brand);
+  }
+
+  .agent-bubble__body {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--gap-sm);
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .agent-bubble--user .agent-bubble__body {
+    padding: 10px 16px;
+    border-radius: var(--r-field);
+    background: var(--brand-tint);
+  }
+
+  .agent-bubble__text {
+    position: relative;
+    min-width: 0;
+    max-width: 100%;
+    color: var(--ink);
+    font-size: var(--fs-body);
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+  }
+
+  .agent-bubble__caret {
+    display: inline-block;
+    width: 2px;
+    height: 1em;
+    margin-left: 2px;
+    border-radius: var(--r-mark);
+    background: var(--brand);
+    vertical-align: -0.15em;
+    animation: agent-blink 1s steps(2, jump-none) infinite;
+  }
+
+  .agent-bubble__images {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--gap-xs);
+  }
+
+  .agent-bubble__image {
+    margin: 0;
+  }
+
+  .agent-bubble__image img {
+    display: block;
+    max-width: 210px;
+    max-height: 160px;
+    border-radius: var(--r-sub);
+    background: var(--inset);
+    object-fit: cover;
+  }
+
+  .agent-note {
+    align-self: center;
+    margin: 0;
+    padding: 2px var(--gap-sm);
+    color: var(--ink-2);
+    font-size: var(--fs-xs);
+    text-align: center;
+  }
+
+  /* ---------- markdown ---------- */
+  .agent-md {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .agent-md__p {
+    margin: 0;
+  }
+
+  .agent-md__list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0;
+    padding-left: 20px;
+  }
+
+  .agent-md__code {
+    padding: 1px 5px;
+    border-radius: var(--r-mark);
+    background: var(--inset);
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+  }
+
+  .agent-md a {
+    color: var(--brand);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  /* ---------- answered asks ---------- */
+  .agent-asks {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-xs);
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .agent-asks__item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 14px;
+    border-radius: var(--r-sub);
+    background: var(--inset);
+    font-size: var(--fs-sm);
+  }
+
+  .agent-asks__question {
+    margin: 0;
+    color: var(--ink);
+    font-weight: 500;
+  }
+
+  .agent-asks__answer {
+    margin: 0;
+    color: var(--ink-2);
+  }
+
+  .agent-asks__label {
+    margin-right: 4px;
+    font-size: var(--fs-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  /* ---------- tool steps: a count that unfolds into rows ---------- */
+  .agent-steps {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .agent-steps__toggle {
+    gap: 6px;
+    color: var(--ink-2);
+  }
+
+  .agent-steps__spinner {
+    flex: none;
+    animation: agent-spin 900ms linear infinite;
+  }
+
+  .agent-steps__panel {
+    display: grid;
+    grid-template-rows: 0fr;
+    width: 100%;
+    visibility: hidden;
+    transition:
+      grid-template-rows var(--dur-expand) var(--ease-out),
+      visibility 0s var(--dur-expand);
+  }
+
+  .agent-steps__list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-height: 0;
+    margin: 0;
+    padding: 8px 0 0;
+    overflow: hidden;
+    list-style: none;
+    opacity: 0;
+    transition: opacity var(--dur-fade) var(--ease-standard);
+  }
+
+  .agent-steps.is-open .agent-steps__panel {
+    grid-template-rows: 1fr;
+    visibility: visible;
+    transition-delay: 0s;
+  }
+
+  .agent-steps.is-open .agent-steps__list {
+    opacity: 1;
+    transition-delay: 55ms;
+  }
+
+  /* Before the first step finishes there is nothing to disclose: the running
+     row stands alone, without a toggle. */
+  .agent-steps__list--solo {
+    padding-top: 0;
+    opacity: 1;
+  }
+
+  .agent-steps__item {
+    display: grid;
+    grid-template-columns: 16px auto minmax(0, 1fr);
+    align-items: baseline;
+    gap: 8px;
+    max-width: 100%;
+    padding: 4px 8px;
+    border-radius: var(--r-mark);
+    font-size: var(--fs-xs);
+  }
+
+  .agent-steps__item[data-ok='false'] {
+    background: var(--danger-tint);
+    color: var(--danger);
+  }
+
+  .agent-steps__icon {
+    align-self: center;
+    color: var(--ink-2);
+  }
+
+  .agent-steps__item[data-ok='false'] .agent-steps__icon {
+    color: var(--danger);
+  }
+
+  .agent-steps__name {
+    color: var(--ink-2);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .agent-steps__item[data-ok='false'] .agent-steps__name {
+    color: var(--danger);
+  }
+
+  .agent-steps__summary {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .agent-steps__item--running .agent-steps__name {
+    background: linear-gradient(90deg, var(--ink-2) 0%, var(--ink) 50%, var(--ink-2) 100%);
+    background-size: 220% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: agent-shimmer 1.4s linear infinite;
+  }
+
+  /* ---------- ask card ---------- */
+  .agent-ask {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-sm);
+    width: 100%;
+    padding: 14px 16px;
+    border-radius: var(--r-field);
+    background: var(--inset);
+  }
+
+  .agent-ask__question {
+    margin: 0;
+    color: var(--ink);
+    font-size: var(--fs-body);
+    font-weight: 500;
+    line-height: 1.45;
+  }
+
+  .agent-ask__options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--gap-xs);
+  }
+
+  .agent-ask__option {
+    height: auto;
+    min-height: 32px;
+    padding: 6px 14px;
+    white-space: normal;
+    text-align: left;
+  }
+
+  .agent-ask__other {
+    align-self: flex-start;
+    color: var(--ink-2);
+  }
+
+  .agent-ask__form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--gap-xs);
+  }
+
+  .agent-ask__input {
+    flex: 1 1 200px;
+  }
+
+  /* ---------- semester fields (Settings and the timetable card share them) ---------- */
+  .agent-semester__row {
+    align-items: flex-end;
+  }
+
+  .agent-semester__date {
+    max-width: 200px;
+  }
+
+  /* ---------- timetable card ---------- */
+  .agent-timetable {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-sm);
+    width: 100%;
+    min-width: 0;
+    padding: var(--gap) 18px;
+    border-radius: var(--r-field);
+    background: var(--inset);
+  }
+
+  .agent-timetable__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--gap-xs);
+  }
+
+  .agent-timetable__title {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--ink);
+    font-size: var(--fs-body);
+    font-weight: 600;
+  }
+
+  .agent-timetable__title-icon {
+    color: var(--brand);
+  }
+
+  .agent-timetable__warnings-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 0;
+    padding-left: 18px;
+  }
+
+  .agent-timetable__result {
+    margin: 0;
+  }
+
+  .agent-timetable__applied-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 0;
+    padding-left: 18px;
+  }
+
+  .agent-timetable__gate {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-xs);
+  }
+
+  .agent-timetable__hint {
+    margin: 0;
+    color: var(--ink-2);
+    font-size: var(--fs-xs);
+  }
+
+  .agent-timetable__rows {
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-sm);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .agent-timetable__row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    padding: 10px 12px;
+    border: 1px solid var(--hairline);
+    border-radius: var(--r-field);
+    background: var(--card);
+  }
+
+  .agent-timetable__row-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .agent-timetable__course {
+    flex: 1;
+    min-width: 0;
+    font-weight: 600;
+  }
+
+  .agent-timetable__fields {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .agent-timetable__field {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .agent-timetable__label {
+    color: var(--ink-2);
+    font-size: var(--fs-xs);
+    line-height: 1.2;
+  }
+
+  .agent-timetable__field .input,
+  .agent-timetable__field .select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .agent-timetable__row-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .agent-timetable__dates {
+    color: var(--ink-2);
+    font-size: var(--fs-xs);
+    white-space: nowrap;
+  }
+
+  .agent-timetable__conflicts {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .agent-timetable__conflict {
+    height: auto;
+    min-height: 26px;
+    padding: 4px 10px;
+    background: var(--danger-tint);
+    color: var(--danger);
+    white-space: normal;
+    text-align: left;
+  }
+
+  .agent-timetable__remove {
+    flex: none;
+    padding: 0 8px;
+  }
+
+  .agent-timetable__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--gap-xs);
+  }
+
+  .agent-timetable__error {
+    margin: 0;
+  }
+
+  @media (max-width: 900px) {
+    .agent-bubble--user {
+      max-width: 94%;
+    }
+
+    .agent-timetable__fields {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 560px) {
+    .agent-timetable__fields {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+}
+
+/* One message arriving from below: a small step, never a slide. */
+@keyframes agent-msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes agent-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes agent-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes agent-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+@keyframes agent-shimmer {
+  from {
+    background-position: -120% 0;
+  }
+  to {
+    background-position: 120% 0;
+  }
+}
+
+/* Turning motion off must never remove information: the caret stops blinking
+   but stays visible, and every looping animation is switched off. */
+@media (prefers-reduced-motion: reduce) {
+  .agent-bubble {
+    animation: none;
+  }
+
+  .agent-bubble__caret,
+  .agent-steps__spinner,
+  .agent-steps__item--running .agent-steps__name {
+    animation: none;
+  }
+
+  .agent-bubble__caret {
+    opacity: 1;
+  }
+
+  .agent-steps__item--running .agent-steps__name {
+    background: none;
+    color: var(--ink-2);
+  }
+}

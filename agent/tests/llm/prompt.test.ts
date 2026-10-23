@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildHistoryMessages, buildSystemPrompt, buildUserMessage } from '../../src/prompt';
+import { MAX_TURN_IMAGES, buildHistoryMessages, buildSystemPrompt, buildUserMessage } from '../../src/prompt';
 import type { Semester } from '../../src/types';
 
 const TZ_SHANGHAI = 8 * 60 * 60 * 1000;
@@ -50,14 +50,43 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('Live context snapshot:\nSNAPSHOT-LINE-1\nSNAPSHOT-LINE-2');
   });
 
-  it('spells out the tool discipline', () => {
+  it('spells out the hard rules', () => {
     const prompt = promptAt(Date.UTC(2026, 9, 23, 1, 20));
-    expect(prompt).toContain('Always call a tool to read data or change anything');
-    expect(prompt).toContain('never claim an event or task exists without a tool result');
+    expect(prompt).toContain('Facts only from tool results');
+    expect(prompt).toContain('Every change goes through a tool');
+    expect(prompt).toContain('ok:false is a failure');
     expect(prompt).toContain('Dates are YYYY-MM-DD and times are HH:mm (24-hour)');
     expect(prompt).toContain('Never invent ids');
-    expect(prompt).toContain('ask one short clarifying question');
-    expect(prompt).toContain('current UI language: zh');
+  });
+
+  it('tells the model to ask with the tool and use the playbook', () => {
+    const prompt = promptAt(Date.UTC(2026, 9, 23, 1, 20));
+    expect(prompt).toContain('## Ask, don’t guess');
+    expect(prompt).toContain('call ask_user with 2–5 short options');
+    expect(prompt).toContain('Ask one question at a time');
+
+    for (const skill of [
+      'capture_from_text',
+      'timetable_import',
+      'screenshot_to_todos',
+      'day_planning',
+      'reschedule',
+      'timetable_qa',
+      'cleanup',
+    ]) {
+      expect(prompt).toContain(`### ${skill}`);
+    }
+    expect(prompt).toContain('Never call create_recurring for a grid');
+    expect(prompt).toContain('Never do week math from memory');
+  });
+
+  it('states the image rules and reply style', () => {
+    const prompt = promptAt(Date.UTC(2026, 9, 23, 1, 20));
+    expect(prompt).toContain('An attached image is not automatically a timetable');
+    expect(prompt).toContain('classify it first');
+    expect(prompt).toContain('use ask_user instead of guessing');
+    expect(prompt).toContain('No HTML, no Markdown tables, no headings');
+    expect(prompt).toContain('current UI language is zh');
   });
 });
 
@@ -87,7 +116,9 @@ describe('buildUserMessage', () => {
   });
 
   it('adds the image as a content part after the text', () => {
-    const message = buildUserMessage('what is this?', 'data:image/png;base64,AAAA');
+    const message = buildUserMessage('what is this?', [
+      { id: 'img-1', dataUrl: 'data:image/png;base64,AAAA', name: 'timetable.png' },
+    ]);
     expect(message.role).toBe('user');
     expect(Array.isArray(message.content)).toBe(true);
     if (!Array.isArray(message.content)) throw new Error('expected content parts');
@@ -95,5 +126,20 @@ describe('buildUserMessage', () => {
       { type: 'text', text: 'what is this?' },
       { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } },
     ]);
+  });
+
+  it('keeps at most MAX_TURN_IMAGES images', () => {
+    const images = Array.from({ length: MAX_TURN_IMAGES + 2 }, (_value, index) => ({
+      id: `img-${index}`,
+      dataUrl: `data:image/png;base64,${index}`,
+    }));
+    const message = buildUserMessage('many', images);
+    if (!Array.isArray(message.content)) throw new Error('expected content parts');
+    expect(message.content).toHaveLength(1 + MAX_TURN_IMAGES);
+  });
+
+  it('sends an image-only turn without an empty text part', () => {
+    const message = buildUserMessage('', [{ id: 'img-1', dataUrl: 'data:image/png;base64,AAAA' }]);
+    expect(message.content).toEqual([{ type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } }]);
   });
 });

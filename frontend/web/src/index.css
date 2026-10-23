@@ -8,6 +8,7 @@
 @import './styles/views-calendar.css';
 @import './styles/views-content.css';
 @import './styles/views-agent.css';
+@import './styles/agent-cards.css';
 
 /* iOS zooms the page when a focused input has font-size < 16px.
    Tailwind's text-sm class wins by specificity, hence !important. */

@@ -17,11 +17,14 @@ but it must admit it is not information.
 ## Surface carries hierarchy; lines never do
 
 Three tones: page (`--paper`) → card (`--card`) → inside a card (`--inset`).
-Borders and shadows are not hierarchy tools. A line is allowed only when it
-draws a *state* (focus) or a *scale* (calendar hour grid, inline marks).
-There are exactly two shadows, both brand light: `--glow-lift` (something
-floats: hovered card, overlay) and `--glow-focus` (a field is focused).
-No neutral/black shadows.
+`--raised` is not a fourth hierarchy step: it is the surface of something
+floating above the page (a toast). Borders and shadows are not hierarchy tools.
+A line is allowed only when it draws a *state* (focus) or a *scale* (calendar
+hour grid, inline marks). There are three shadows: `--glow-lift` (something
+lifts: hovered card, overlay), `--glow-focus` (a field is focused) and
+`--shadow-float` (a status surface has to read above the page in both themes).
+The glow shadows are brand light; `--shadow-float` is neutral because elevation
+must work on both paper tones. No other neutral shadows.
 
 ## Shape is classification
 
@@ -37,7 +40,9 @@ Shape also says what a control *does*:
   light up. Items are equal width by construction — the thumb's geometry is
   computed from the item count, and a content-sized item would desynchronise it.
 - An **expander** is a pill at rest and takes the field radius as it opens: a
-  one-line control becoming a list. Closing returns it to the pill.
+  one-line control becoming a list. Closing returns it to the pill. The surface
+  clips to that moving radius, so its hover tint and rows never paint past the
+  edge the user sees.
 - A **capsule is for one line of things**. A group that wraps or carries
   several rows (the calendar toolbar) takes the field radius instead.
 - A **card clips to its own radius** (`overflow: clip`): a child tint, row or
@@ -74,6 +79,15 @@ directions, and the page keeps its reading order. A long, data-driven list
 (nodes a block can link to, a node's move destination) keeps the native
 `select` — hundreds of options are a picker, not a disclosure.
 
+## Confirm changes that land out of sight
+
+A button whose effect is not visible where it sits (an applied server URL, a
+saved path, a toggled subscription, a cleared cache) raises a **toast**: one
+pill above the page that names what was done and leaves on its own. It is status,
+not a dialog — it floats over the page and lets clicks through, it never hosts a
+control, and it does not replace the page's own in-place feedback. Validation
+still reports in place; a toast is for success.
+
 ## Motion expresses relation
 
 1. Identity: the same thing changes form (an overlay grows from its trigger).
@@ -81,7 +95,7 @@ directions, and the page keeps its reading order. A long, data-driven list
    in `--dur-fade`, shells move `--dur-expand` (420ms).
 3. Character: the curves and asymmetry (`--ease-out`, 420ms shell).
 
-Two named gestures carry almost all of it:
+Three named gestures carry almost all of it:
 
 - **Unfold**: a panel's height animates with `grid-template-rows: 0fr → 1fr`
   over `--dur-expand`; its content arrives 55ms later (fade + 8px rise) and
@@ -89,6 +103,9 @@ Two named gestures carry almost all of it:
   mounted while closed and is `inert`, so the collapse animates too.
 - **Entry**: a page fades in (`--dur-enter`), its head and cards rise 10px
   (`rise-in`), and settings cards step in reading order.
+- **Confirmation**: a toast rises 14px and fades in over 340ms, its check draws
+  itself 120ms later, and the toast leaves downward when its time is up. It
+  enters from the bottom edge because it speaks for the action just taken.
 
 No infinite decorative animation: nothing moves unless a state change or an
 arrival caused it. `prefers-reduced-motion` is handled globally in
@@ -121,7 +138,8 @@ Expander: `.expand-select` `.expand-select__toggle` `.expand-select__label`
 `.expand-select__chevron` `.expand-select__panel` `.expand-select__clip`
 `.expand-select__list` `.expand-select__option`
 Tree: `.tree` `.tree__row` `.tree__disclosure` `.tree__disclosure-spacer`
-`.tree__guides` `.tree__guide` `.tree__guide--elbow`
+`.tree__guides` `.tree__guide` `.tree__guide--trunk` `.tree__guide--drop`
+`.tree__guide--elbow`
 `.tree__label-button` `.node-name` `.node-id` `.node-meta` `.node-status`
 `.node-note` `.node-match`
 Workbench: `.workbench` `.workbench__main` `.workbench__side`
@@ -130,13 +148,16 @@ Detail: `.detail` `.detail__head` `.detail__title` `.detail__actions`
 `.fact__value` `.reminder-box` `.reminder-list` `.reminder-item`
 Overlays: `.modal` `.modal__panel` `.modal__head`
 `.sheet` `.sheet__handle`
+Toast: `.toast-viewport` `.toast` `.toast--error` `.toast__icon`
+`.toast__glyph` `.toast__glyph--check` `.toast__message`
 Calendar: `.cal-page` `.cal-toolbar` `.cal` `.cal__head` `.cal__gutter`
 `.cal__dayhead` `.cal__canvas` `.cal__canvas-inner` `.cal__hourline`
 `.cal__hourlabel` `.cal__daydivider` `.cal__today` `.cal__now` `.cal-bar`
 `.cal-bar__name` `.cal-bar__link` `.rule-list` `.rule-item`
 Stats: `.stat-groups` `.stat-grid` `.stat` `.stat__label` `.stat__value`
 Settings: `.settings` `.setting` `.setting__label` `.setting__hint`
-`.setting__value` `.settings__actions`
+`.setting__value` `.settings__actions` `.settings__presets` `.server-chip`
+`.server-chip__host` `.server-chip__check`
 Conflict: `.split` `.branch` `.branch__head` `.branch__ops` `.branch__tree`
 `.diff-legend` `.diff-legend__item` `.diff-swatch` `.diff-swatch--only`
 `.diff-swatch--changed` `.resolutions`

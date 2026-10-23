@@ -5,8 +5,10 @@ import type { Node } from '@worktree/core';
 import type { WorktreeClient } from '@worktree/client';
 import { verifyProvider } from '@worktree/agent';
 import { ExpandSelect } from '../components/ExpandSelect';
-import { SemesterFields } from '../components/TimetableImport';
-import { LOCAL_USER, listLoggedInUsers, loadToken } from '../config';
+import { SemesterFields } from '../components/agent/SemesterFields';
+import { CheckIcon } from '../components/icons';
+import { useToast } from '../components/Toast';
+import { LOCAL_USER, SERVER_PRESETS, listLoggedInUsers, loadToken } from '../config';
 import type { AppConfig, FilterDisplayMode } from '../config';
 import { authRequest } from '../auth';
 import { LANGS, useI18n } from '../i18n';
@@ -24,6 +26,15 @@ function validServerUrl(value: string): boolean {
   }
 }
 
+/** The host a server URL points at, for compact labels and confirmations. */
+function serverHost(value: string): string {
+  try {
+    return new URL(value).host;
+  } catch {
+    return value;
+  }
+}
+
 export function SettingsPage(props: {
   config: AppConfig;
   client: WorktreeClient;
@@ -34,13 +45,15 @@ export function SettingsPage(props: {
   onLoginOther: () => void;
 }) {
   const { t } = useI18n();
+  const toast = useToast();
   const { config, client, tree, updateConfig, onClearCache, onLogout, onLoginOther } = props;
 
   const [serverDraft, setServerDraft] = useState(config.serverUrl);
   const [serverError, setServerError] = useState<string | null>(null);
+  const currentServer = config.serverUrl.trim().replace(/\/+$/, '');
 
-  const applyServer = (): void => {
-    const value = serverDraft.trim().replace(/\/+$/, '');
+  const applyServerUrl = (raw: string): void => {
+    const value = raw.trim().replace(/\/+$/, '');
     if (!validServerUrl(value)) {
       setServerError(t('settings.invalidServer'));
       return;
@@ -48,7 +61,10 @@ export function SettingsPage(props: {
     setServerError(null);
     setServerDraft(value);
     updateConfig({ serverUrl: value });
+    toast.success(t('settings.serverApplied', { host: serverHost(value) }));
   };
+
+  const applyServer = (): void => applyServerUrl(serverDraft);
 
   const [quickDraft, setQuickDraft] = useState(config.quickAddPath);
   const [quickError, setQuickError] = useState<string | null>(null);
@@ -64,6 +80,7 @@ export function SettingsPage(props: {
     setQuickError(null);
     setQuickDraft(value);
     updateConfig({ quickAddPath: value });
+    toast.success(t('settings.quickPathApplied'));
   };
 
   const clearCache = (): void => {
@@ -71,6 +88,7 @@ export function SettingsPage(props: {
       return;
     }
     onClearCache();
+    toast.success(t('settings.cleared'));
   };
 
   const [aiBaseDraft, setAiBaseDraft] = useState(config.ai.baseUrl);
@@ -96,6 +114,7 @@ export function SettingsPage(props: {
     setAiBaseDraft(baseUrl);
     setAiModelDraft(model);
     updateConfig({ ai: { ...config.ai, baseUrl, model, apiKey: aiKeyDraft } });
+    toast.success(t('settings.ai.saved'));
   };
 
   const testAi = async (): Promise<void> => {
@@ -161,7 +180,10 @@ export function SettingsPage(props: {
       ? enablePush(config.serverUrl, stored.token)
       : disablePush(config.serverUrl, stored.token);
     run
-      .then(() => setPushStatus(enable ? 'enabled' : 'disabled'))
+      .then(() => {
+        setPushStatus(enable ? 'enabled' : 'disabled');
+        toast.success(enable ? t('settings.notifications.enabled') : t('settings.notifications.disabled'));
+      })
       .catch((e: unknown) => {
         const msg = e instanceof Error ? e.message : String(e);
         setPushError(t('settings.notifications.error', { message: msg }));
@@ -340,6 +362,31 @@ export function SettingsPage(props: {
               >
                 {t('settings.apply')}
               </button>
+            </div>
+            <div className="settings__presets">
+              <span className="setting__hint">{t('settings.serverPresets')}</span>
+              <div className="cluster">
+                {SERVER_PRESETS.map((url) => {
+                  const host = serverHost(url);
+                  return (
+                    <button
+                      key={url}
+                      type="button"
+                      onClick={() => applyServerUrl(url)}
+                      aria-pressed={currentServer === url}
+                      aria-label={url}
+                      title={url}
+                      data-testid={`settings-server-preset-${host}`}
+                      className="server-chip"
+                    >
+                      {currentServer === url && (
+                        <CheckIcon className="server-chip__check icon icon--sm" />
+                      )}
+                      <span className="server-chip__host">{host}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
             <p className="setting__hint">{t('settings.serverNote')}</p>
             {serverError !== null && <p className="form__error">{serverError}</p>}

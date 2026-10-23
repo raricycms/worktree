@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { Tree, filterTree } from '@worktree/core';
 import { ROOT_ID } from '@worktree/core';
-import type { FilteredNode, NodeFilter } from '@worktree/core';
+import type { FilteredNode, Node, NodeFilter } from '@worktree/core';
 import { I18nProvider } from '../src/i18n';
 import { TreeView } from '../src/components/TreeView';
 import type { DiffStyle } from '../src/components/TreeNode';
@@ -19,21 +19,34 @@ const tree = Tree.fromOps([
   { kind: 'add', parentId: ROOT_ID, id: 'cccc-1', name: 'gamma', weight: 2 },
 ]).getRoot();
 
+const deepTree = Tree.fromOps([
+  { kind: 'add', parentId: ROOT_ID, id: 'a-1', name: 'alpha', weight: 1 },
+  { kind: 'add', parentId: ROOT_ID, id: 'd-1', name: 'delta', weight: 2 },
+  { kind: 'add', parentId: 'a-1', id: 'b-1', name: 'beta', weight: 1 },
+  { kind: 'add', parentId: 'b-1', id: 'g-1', name: 'gamma', weight: 1 },
+  { kind: 'add', parentId: 'd-1', id: 'e-1', name: 'epsilon', weight: 1 },
+]).getRoot();
+
 function Harness({
   onSelect,
   selectedId = null,
   filter,
   filterActive,
   highlightMatches,
+  sourceTree = tree,
+  expandedIds = ['aaaa-1'],
 }: {
   onSelect: (id: string) => void;
   selectedId?: string | null;
   filter?: NodeFilter;
   filterActive?: boolean;
   highlightMatches?: boolean;
+  sourceTree?: Node;
+  expandedIds?: string[];
 }) {
-  const [expanded, setExpanded] = useState<Set<string>>(new Set(['aaaa-1']));
-  const view: FilteredNode = filter !== undefined ? filterTree(tree, filter) : filterTree(tree, {});
+  const [expanded, setExpanded] = useState<Set<string>>(new Set(expandedIds));
+  const view: FilteredNode =
+    filter !== undefined ? filterTree(sourceTree, filter) : filterTree(sourceTree, {});
   return (
     <I18nProvider lang="en">
       <TreeView
@@ -88,7 +101,7 @@ describe('TreeView', () => {
     expect(rootRow?.getAttribute('class')).toContain('tree__root-row');
   });
 
-  it('draws one guide per depth level, with the elbow on the last one', () => {
+  it('draws a column per level, the elbow on the last, and a drop line under an open parent', () => {
     render(<Harness onSelect={() => undefined} />);
     const rootRow = row(0, ROOT_ID);
     const alphaRow = row(1, 'aaaa-1');
@@ -97,13 +110,41 @@ describe('TreeView', () => {
     expect(rootRow?.querySelector('.tree__guides')).toBeNull();
     const alphaGuides = alphaRow?.querySelector('.tree__guides');
     const alphaSpans = alphaGuides?.querySelectorAll(':scope > .tree__guide');
-    expect(alphaSpans?.length).toBe(1);
+    // alpha is open: besides its own elbow, its branch drops down to the
+    // children it introduces.
+    expect(alphaSpans?.length).toBe(2);
     expect(alphaSpans?.[0].classList.contains('tree__guide--elbow')).toBe(true);
+    expect(alphaSpans?.[1].classList.contains('tree__guide--drop')).toBe(true);
+    // alpha is the last of its siblings, so its column must not run past it.
     const betaSpans = betaRow?.querySelectorAll('.tree__guides > .tree__guide');
     expect(betaSpans?.length).toBe(2);
-    expect(betaSpans?.[0].classList.contains('tree__guide--elbow')).toBe(false);
+    expect(betaSpans?.[0].classList.contains('tree__guide--trunk')).toBe(false);
     expect(betaSpans?.[1].classList.contains('tree__guide--elbow')).toBe(true);
     expect(alphaGuides?.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('keeps an ancestor column through its subtree and drops it under a last sibling', () => {
+    render(
+      <Harness onSelect={() => undefined} sourceTree={deepTree} expandedIds={['a-1', 'b-1', 'd-1']} />,
+    );
+    // alpha has delta after it, so alpha's column runs through beta and gamma.
+    const betaSpans = row(2, 'b-1')?.querySelectorAll('.tree__guides > .tree__guide');
+    expect(betaSpans?.length).toBe(3);
+    expect(betaSpans?.[0].classList.contains('tree__guide--trunk')).toBe(true);
+    expect(betaSpans?.[1].classList.contains('tree__guide--elbow')).toBe(true);
+    expect(betaSpans?.[2].classList.contains('tree__guide--drop')).toBe(true);
+    // beta is alpha's last child: its column ends at beta instead of running
+    // on through gamma's rows.
+    const gammaSpans = row(3, 'g-1')?.querySelectorAll('.tree__guides > .tree__guide');
+    expect(gammaSpans?.length).toBe(3);
+    expect(gammaSpans?.[0].classList.contains('tree__guide--trunk')).toBe(true);
+    expect(gammaSpans?.[1].classList.contains('tree__guide--trunk')).toBe(false);
+    expect(gammaSpans?.[2].classList.contains('tree__guide--elbow')).toBe(true);
+    // delta is the last root child: no column continues below it.
+    const epsilonSpans = row(2, 'e-1')?.querySelectorAll('.tree__guides > .tree__guide');
+    expect(epsilonSpans?.length).toBe(2);
+    expect(epsilonSpans?.[0].classList.contains('tree__guide--trunk')).toBe(false);
+    expect(epsilonSpans?.[1].classList.contains('tree__guide--elbow')).toBe(true);
   });
 
   it('keeps the node id on both the row wrapper and the label button', () => {

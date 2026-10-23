@@ -16,6 +16,9 @@ import type { ThemePref } from './theme';
 export const DEFAULT_SERVER = 'https://worktree.fuyuzheju.cn';
 export const LOCAL_USER = 'local';
 
+/** Known remote servers, offered in Settings as one-click presets. */
+export const SERVER_PRESETS = [DEFAULT_SERVER, 'https://wkt.raricy.com'];
+
 export const DEFAULT_AI_BASE_URL = 'https://api.deepseek.com';
 export const DEFAULT_AI_MODEL = 'deepseek-flash';
 const MAX_SEMESTER_WEEKS = 60;

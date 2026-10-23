@@ -20,13 +20,18 @@
 
   /* ---------- tree guides ----------
      Guides overlay the row's existing indent, so they add no layout width and
-     each column lands on the disclosure column of its level. A column is one
-     indent wide and its line sits at its centre (x=9px), which is also the
-     centre of the disclosure above it. The last guide is the elbow: its line
-     arrives from the top and turns at --tree-branch-y (the chevron's centre)
-     into the row it introduces, so a branch always comes from the row that
-     opened it. Ancestor guides run the full row height, and consecutive rows
-     have no gap, so the trunk is continuous down a branch. */
+     each column lands on the disclosure column of its level: column k is the
+     centre of the node at depth k, which is where that node's chevron sits
+     (the root's content starts at 0, so depth 0 is the first column).
+     A column is fixed-width even when it paints nothing, so the columns after
+     it keep their x. An ancestor column paints a line only while that ancestor
+     has a following sibling; otherwise the branch would run on past the row it
+     belongs to and leave detached strokes down the rest of the subtree.
+     The last column is the elbow: its vertical part arrives from the parent's
+     chevron centre (continuing the parent row's drop line) and turns at
+     --tree-branch-y, the row's own chevron centre, into the row it introduces.
+     An expanded row adds a drop line under its own chevron so the branch
+     reaches its children instead of restarting a row lower down. */
   .tree__row {
     position: relative;
   }
@@ -49,7 +54,9 @@
     overflow: visible;
   }
 
-  .tree__guide::before {
+  .tree__guide--trunk::before,
+  .tree__guide--drop::before,
+  .tree__guide--elbow::before {
     content: '';
     position: absolute;
     top: 0;
@@ -59,16 +66,18 @@
     background: var(--hairline-strong);
   }
 
-  .tree__guide--elbow::before {
+  /* A row with siblings below it is part of the trunk: its elbow runs on to
+     the next row so the branch reads as one continuous stroke. The last child
+     stops at its own branch point instead. */
+  .tree__row[data-last='true'] .tree__guide--elbow::before {
     bottom: auto;
     height: var(--tree-branch-y);
   }
 
-  /* A row that has siblings below it is part of the trunk: its line runs on to
-     the next row so the branch reads as one continuous stroke. */
-  .tree__row:not([data-last='true']) .tree__guide--elbow::before {
-    bottom: 0;
-    height: auto;
+  /* The drop line starts just under the chevron glyph: the branch must read as
+     coming out of the node, not as striking through its icon. */
+  .tree__guide--drop::before {
+    top: calc(var(--tree-branch-y) + 5px);
   }
 
   .tree__guide--elbow::after {
@@ -76,17 +85,20 @@
     position: absolute;
     top: var(--tree-branch-y);
     left: 50%;
-    /* Half a column to its own centre, then the disclosure column, then the
-       label: the elbow ends where the row's content starts. */
+    /* A leaf has no disclosure to end at: reach past the empty disclosure
+       column so the line meets the label it introduces. */
     width: calc(var(--tree-indent) * 1.5);
     height: 1px;
     background: var(--hairline-strong);
   }
 
-  /* Rows with a disclosure end the branch at the chevron instead: the line
-     must not strike through the glyph it leads to. */
+  /* A row with a disclosure ends the elbow at the chevron's point: one column
+     from the ancestor column to the disclosure column's centre, plus the 2px
+     that centres the 14px glyph in that column (which is where the point of
+     the chevron sits), so the branch reaches the control it introduces instead
+     of stopping short of it. */
   .tree__row:has(.tree__disclosure) .tree__guide--elbow::after {
-    width: calc(var(--tree-indent) / 2);
+    width: calc(var(--tree-indent) + 2px);
   }
 
   /* Rows fade in as their parent expands; the depth delay makes a branch
