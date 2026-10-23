@@ -475,6 +475,7 @@ export function NodeDetailPanel(props: {
               onError={setError}
             />
           )}
+          {client.isLocal() && <p className="tiny muted">{t('detail.localReminders')}</p>}
         </div>
       )}
     </div>

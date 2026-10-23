@@ -11,6 +11,10 @@ model User {
   id               Int                @id @default(autoincrement())
   name             String             @unique
   passwordHash     String?
+  // SHA-256 of the normalized one-time recovery code; the raw code is shown
+  // to the user exactly once. Null means no recovery code has been issued yet
+  // (accounts created before the column existed, or before a password change).
+  recoveryHash     String?
   headOpId         String?
   createdAt        DateTime           @default(now())
   nodes            HistoryNode[]

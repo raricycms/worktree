@@ -1,4 +1,12 @@
-import { DEFAULT_CAPTURE_PATH, ROOT_ID, USER_RE, newId, planCapture, planDropRepair } from '@worktree/core';
+import {
+  DEFAULT_CAPTURE_PATH,
+  ROOT_ID,
+  USER_RE,
+  WorktreeState,
+  newId,
+  planCapture,
+  planDropRepair,
+} from '@worktree/core';
 import type {
   Block,
   BlockOccurrence,
@@ -15,7 +23,6 @@ import type {
   RepairDrop,
   RuleFreq,
   Timestamp,
-  WorktreeState,
 } from '@worktree/core';
 import { ApiError, ServerAPI } from './api';
 import { DEFAULT_AUTO_REMINDER_PCT, autoReminderDeadline } from './autoReminder';
@@ -228,6 +235,39 @@ export class WorktreeClient {
     if (this.local) throw new Error('the local user has no server history to sync');
     const page = await this.api.history(null);
     this.store.setConfirmed(page.nodes);
+    this.emit();
+  }
+
+  /**
+   * Import a whole history into an empty workspace (the local -> account
+   * migration path: export on the local user, import into a fresh account).
+   *
+   * The workspace must be empty — no confirmed entries and nothing pending — so
+   * an import replaces a fresh chain instead of overwriting or merging local
+   * intent. Entry ids must be unique (they are the ops' UUIDs), and the history
+   * must replay cleanly, so a malformed or outdated backup fails before any
+   * state changes.
+   *
+   * Server users import through /api/rewrite with base null: a rewrite is the
+   * only endpoint that replaces a history, and the null base is the server's
+   * authoritative "the history is empty" check (a 409 means another client
+   * advanced it meanwhile — the import must not clobber that work). Local users
+   * have no server history, so the confirmed chain is replaced directly.
+   */
+  async importHistory(nodes: HistoryNode[]): Promise<void> {
+    if (this.store.getConfirmed().length > 0 || this.store.getPending().length > 0) {
+      throw new Error('import requires an empty workspace: clear the confirmed history and pending ops first');
+    }
+    const ids = new Set<string>();
+    for (const node of nodes) {
+      if (ids.has(node.id)) throw new Error(`duplicate history entry id: ${node.id}`);
+      ids.add(node.id);
+    }
+    WorktreeState.fromOps(nodes.map((node) => node.op));
+    if (!this.local) {
+      await this.api.rewrite(null, nodes);
+    }
+    this.store.setConfirmed(nodes);
     this.emit();
   }
 

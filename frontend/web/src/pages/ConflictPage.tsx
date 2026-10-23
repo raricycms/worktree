@@ -3,6 +3,12 @@ import { WorktreeState, filterTree } from '@worktree/core';
 import type { HistoryNode, HistoryOperation, Node, Operation } from '@worktree/core';
 import type { Conflict, WorktreeClient } from '@worktree/client';
 import type { DisplayPrefs } from '../config';
+import { loadConfig } from '../config';
+import {
+  buildHistoryBackup,
+  downloadHistoryBackup,
+  historyBackupFilename,
+} from '../data-transfer';
 import { useI18n } from '../i18n';
 import { TreeView } from '../components/TreeView';
 import type { DiffStyle } from '../components/TreeNode';
@@ -67,26 +73,33 @@ function highlightMap(diff: TreeDiff, only: Set<string>): Map<string, DiffStyle>
 }
 
 /**
- * The user's intended tree: the agreed base plus their pending ops as they
- * apply to the base. Ops that no longer apply are dropped from the preview.
+ * The user's intended history: the agreed base plus their pending ops as they
+ * apply to the base. Ops that no longer apply are dropped. A pending remove
+ * drops the base tail entry it targets (the server undoes only the head), which
+ * mirrors what "keep my version" rewrites and what the preview shows.
  */
+function materializeBranch(base: HistoryNode[], pending: HistoryOperation[]): HistoryNode[] {
+  const history = [...base];
+  for (const p of pending) {
+    if (p.kind === 'add') {
+      const probe = WorktreeState.fromOps(history.map((n) => n.op));
+      try {
+        probe.apply(p.op);
+      } catch {
+        continue; // does not apply to the base — dropped from the preview
+      }
+      history.push({ id: p.id, op: p.op });
+    } else if (history.at(-1)?.id === p.id) {
+      history.pop();
+    }
+  }
+  return history;
+}
+
+/** The branch preview; a base that does not replay falls back to an empty tree. */
 function replayBranch(base: HistoryNode[], pending: HistoryOperation[]): Node {
   try {
-    const history = [...base];
-    for (const p of pending) {
-      if (p.kind === 'add') {
-        const probe = WorktreeState.fromOps(history.map((n) => n.op));
-        try {
-          probe.apply(p.op);
-        } catch {
-          continue; // does not apply to the base — dropped from the preview
-        }
-        history.push({ id: p.id, op: p.op });
-      } else if (history.at(-1)?.id === p.id) {
-        history.pop();
-      }
-    }
-    return WorktreeState.fromOps(history.map((n) => n.op)).tree.getRoot();
+    return WorktreeState.fromOps(materializeBranch(base, pending).map((n) => n.op)).tree.getRoot();
   } catch {
     return WorktreeState.fromOps([]).tree.getRoot();
   }
@@ -103,6 +116,7 @@ export function ConflictPage(props: {
   const [localExpanded, setLocalExpanded] = useState<Set<string>>(new Set());
   const [resolving, setResolving] = useState<null | 'server' | 'local'>(null);
   const [error, setError] = useState<string | null>(null);
+  const [backupDone, setBackupDone] = useState(false);
 
   const serverTree = useMemo(
     () =>
@@ -125,6 +139,15 @@ export function ConflictPage(props: {
   const hasDiff = serverHighlight.size > 0 || localHighlight.size > 0;
 
   const resolve = async (choice: 'server' | 'local'): Promise<void> => {
+    // Keeping the server version is irreversible and drops the pending branch:
+    // require an explicit confirmation that says how many local edits are lost.
+    if (
+      choice === 'server' &&
+      conflict.localBranch.length > 0 &&
+      !window.confirm(t('conflict.confirmKeepServer', { n: conflict.localBranch.length }))
+    ) {
+      return;
+    }
     setResolving(choice);
     setError(null);
     try {
@@ -135,6 +158,26 @@ export function ConflictPage(props: {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setResolving(null);
+    }
+  };
+
+  /**
+   * Save the conflicting local branch to a file before either choice is made.
+   * The entries are exactly the base plus the pending ops (the same set "keep my
+   * version" rewrites), so a backup can be re-imported into an empty workspace.
+   */
+  const downloadLocalVersion = (): void => {
+    try {
+      const history = materializeBranch(conflict.base, conflict.localBranch);
+      const config = loadConfig();
+      const now = Date.now();
+      downloadHistoryBackup(
+        historyBackupFilename(config.user, now),
+        buildHistoryBackup(config.user, config.serverUrl, history, now),
+      );
+      setBackupDone(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -245,7 +288,23 @@ export function ConflictPage(props: {
             >
               {resolving === 'local' ? t('conflict.resolving') : t('conflict.keepLocal')}
             </button>
+            <button
+              type="button"
+              disabled={resolving !== null}
+              onClick={downloadLocalVersion}
+              data-testid="conflict-backup"
+              className="btn w-full sm:w-auto"
+            >
+              {t('conflict.backupLocal')}
+            </button>
           </div>
+          <p className="muted small">{t('conflict.backupHint')}</p>
+
+          {backupDone && (
+            <p className="notice notice--success" role="status" data-testid="conflict-backup-done">
+              {t('conflict.backupDone')}
+            </p>
+          )}
 
           {error !== null && (
             <div className="notice notice--danger">{t('conflict.error', { message: error })}</div>

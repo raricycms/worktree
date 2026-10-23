@@ -6,6 +6,8 @@ import { prisma } from './db';
 export const PASSWORD_MIN_LEN = 8;
 export const PASSWORD_MAX_LEN = 1024;
 export const LABEL_MAX_LEN = 100;
+/** Upper bound for a submitted recovery code (users may type dashes/spaces). */
+export const RECOVERY_CODE_INPUT_MAX_LEN = 100;
 
 const SCRYPT_N = 16384;
 const SCRYPT_R = 8;
@@ -55,6 +57,41 @@ export function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
+const RECOVERY_CODE_BYTES = 10;
+const RECOVERY_GROUP_LEN = 4;
+
+/** 80 bits of entropy rendered as 20 uppercase hex chars, shown to the user as
+ *  five dash-separated groups of four (`ABCD-1234-...`). */
+export function generateRecoveryCode(): string {
+  const hex = randomBytes(RECOVERY_CODE_BYTES).toString('hex').toUpperCase();
+  const groups: string[] = [];
+  for (let i = 0; i < hex.length; i += RECOVERY_GROUP_LEN) {
+    groups.push(hex.slice(i, i + RECOVERY_GROUP_LEN));
+  }
+  return groups.join('-');
+}
+
+/** Typing tolerance: users may paste the code with dashes, spaces or lower case. */
+export function normalizeRecoveryCode(raw: string): string {
+  return raw.replace(/[^0-9A-Za-z]/g, '').toUpperCase();
+}
+
+/** Like tokens, the code is high entropy, so plain SHA-256 is the right hash. */
+export function hashRecoveryCode(code: string): string {
+  return createHash('sha256').update(normalizeRecoveryCode(code)).digest('hex');
+}
+
+const DUMMY_RECOVERY_HASH = hashRecoveryCode('dummy-recovery-code-for-timing');
+
+/** Timing-safe and null-safe: a missing stored hash (unknown user or a user
+ *  without a recovery code) still spends the same comparison time. */
+function verifyRecoveryCode(code: string, stored: string | null): boolean {
+  const actual = Buffer.from(hashRecoveryCode(code), 'hex');
+  const expected = Buffer.from(stored ?? DUMMY_RECOVERY_HASH, 'hex');
+  if (actual.length !== expected.length) return false;
+  return timingSafeEqual(actual, expected) && stored !== null;
+}
+
 export class UsernameTakenError extends Error {
   constructor() {
     super('username taken');
@@ -70,14 +107,17 @@ async function createToken(userId: number, label: string | null): Promise<{ toke
 export async function registerUser(
   username: string,
   password: string,
-): Promise<{ username: string; token: string; tokenId: number }> {
+): Promise<{ username: string; token: string; tokenId: number; recoveryCode: string }> {
   const passwordHash = await hashPassword(password);
+  const recoveryCode = generateRecoveryCode();
   try {
     // create + P2002, never upsert: upsert would overwrite an existing
     // user's passwordHash and hand over the account.
-    const user = await prisma.user.create({ data: { name: username, passwordHash } });
+    const user = await prisma.user.create({
+      data: { name: username, passwordHash, recoveryHash: hashRecoveryCode(recoveryCode) },
+    });
     const { token, tokenId } = await createToken(user.id, null);
-    return { username: user.name, token, tokenId };
+    return { username: user.name, token, tokenId, recoveryCode };
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
       throw new UsernameTakenError();
@@ -128,6 +168,67 @@ export async function listTokens(
 export async function revokeToken(userId: number, tokenId: number): Promise<boolean> {
   const res = await prisma.token.deleteMany({ where: { id: tokenId, userId } });
   return res.count > 0;
+}
+
+/** Changes the password and rotates the recovery code, signing every other
+ *  device out; the presented token stays valid. Null: wrong current password. */
+export async function changePassword(
+  userId: number,
+  tokenId: number,
+  currentPassword: string,
+  newPassword: string,
+): Promise<string | null> {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (user === null || user.passwordHash === null) return null;
+  if (!(await verifyPassword(currentPassword, user.passwordHash))) return null;
+  const passwordHash = await hashPassword(newPassword);
+  const recoveryCode = generateRecoveryCode();
+  await prisma.$transaction(async (tx) => {
+    await tx.user.update({
+      where: { id: userId },
+      data: { passwordHash, recoveryHash: hashRecoveryCode(recoveryCode) },
+    });
+    await tx.token.deleteMany({ where: { userId, id: { not: tokenId } } });
+  });
+  return recoveryCode;
+}
+
+/** Replaces the recovery code without touching the password or the tokens. */
+export async function rotateRecoveryCode(userId: number, currentPassword: string): Promise<string | null> {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (user === null || user.passwordHash === null) return null;
+  if (!(await verifyPassword(currentPassword, user.passwordHash))) return null;
+  const recoveryCode = generateRecoveryCode();
+  await prisma.user.update({ where: { id: userId }, data: { recoveryHash: hashRecoveryCode(recoveryCode) } });
+  return recoveryCode;
+}
+
+/** Public account recovery: the code alone resets the password and signs every
+ *  device out. Null for an unknown user, a missing code or a wrong code — all
+ *  indistinguishable to the caller. */
+export async function recoverAccount(
+  username: string,
+  recoveryCode: string,
+  newPassword: string,
+): Promise<string | null> {
+  const user = await prisma.user.findUnique({ where: { name: username } });
+  if (user === null) {
+    // Unknown user: spend the same comparison time as a real verification so
+    // the response timing does not reveal whether the username exists.
+    void verifyRecoveryCode(recoveryCode, null);
+    return null;
+  }
+  if (!verifyRecoveryCode(recoveryCode, user.recoveryHash)) return null;
+  const passwordHash = await hashPassword(newPassword);
+  const newRecoveryCode = generateRecoveryCode();
+  await prisma.$transaction(async (tx) => {
+    await tx.user.update({
+      where: { id: user.id },
+      data: { passwordHash, recoveryHash: hashRecoveryCode(newRecoveryCode) },
+    });
+    await tx.token.deleteMany({ where: { userId: user.id } });
+  });
+  return newRecoveryCode;
 }
 
 const TOUCH_INTERVAL_MS = 60 * 60 * 1000;

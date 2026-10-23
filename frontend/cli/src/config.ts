@@ -1,7 +1,7 @@
 import { USER_RE } from '@worktree/core';
 import { readCurrentUser, writeCurrentUser } from './storage';
 
-export const DEFAULT_SERVER = process.env.WORKTREE_SERVER ?? 'https://worktree.fuyuzheju.cn';
+export const DEFAULT_SERVER = process.env.WORKTREE_SERVER ?? 'https://wkt.raricy.com';
 /** Reserved client-side-only user: offline, never talks to the server. */
 export const LOCAL_USER = 'local';
 

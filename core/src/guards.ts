@@ -1,4 +1,11 @@
-import type { AuthResponse, HistoryPage, ServerMessage } from './protocol';
+import type {
+  AuthResponse,
+  HistoryPage,
+  RecoveryCodeResponse,
+  RegisterResponse,
+  ServerMessage,
+  TokensResponse,
+} from './protocol';
 import type { HistoryNode, HistoryOperation, ServerState } from './types';
 
 /** Runtime guards for untrusted JSON (network bodies, localStorage, files).
@@ -28,6 +35,30 @@ export function isAuthResponse(v: unknown): v is AuthResponse {
     typeof v.username === 'string' &&
     typeof v.token === 'string' &&
     typeof v.tokenId === 'number'
+  );
+}
+
+export function isRegisterResponse(v: unknown): v is RegisterResponse {
+  return (
+    isAuthResponse(v) &&
+    ('recoveryCode' in v ? typeof v.recoveryCode === 'string' : true)
+  );
+}
+
+export function isRecoveryCodeResponse(v: unknown): v is RecoveryCodeResponse {
+  return isRecord(v) && typeof v.recoveryCode === 'string';
+}
+
+export function isTokensResponse(v: unknown): v is TokensResponse {
+  if (!isRecord(v) || !Array.isArray(v.tokens)) return false;
+  return v.tokens.every(
+    (t) =>
+      isRecord(t) &&
+      typeof t.id === 'number' &&
+      (t.label === null || typeof t.label === 'string') &&
+      typeof t.createdAt === 'string' &&
+      (t.lastUsedAt === null || typeof t.lastUsedAt === 'string') &&
+      typeof t.current === 'boolean',
   );
 }
 

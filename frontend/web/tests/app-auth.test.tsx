@@ -30,6 +30,8 @@ const configFor = (user: string) => ({
   user,
   display: { showId: true, showWeight: true, showReminders: true, filterMode: 'hide' },
   lang: 'en',
+  // A returning user has already made the first-run identity choice.
+  onboarded: true,
 });
 
 describe('App auth gate', () => {
@@ -101,8 +103,9 @@ describe('App auth gate', () => {
     expect(JSON.parse(localStorage.getItem('worktree.config')!).user).toBe('t');
     expect(localStorage.getItem('worktree.token.localhost_3000.t')).not.toBeNull();
     expect(localStorage.getItem('worktree.token.localhost_3000.u')).toBeNull();
-    // the client runs as "t" with t's token
-    expect(FakeWebSocket.instances[0]!.url).toContain('token=tok-9');
+    // the client runs as "t" with t's token (connect runs in an effect, so
+    // wait instead of assuming the socket exists right after the auth screen)
+    await waitFor(() => expect(FakeWebSocket.instances[0]?.url).toContain('token=tok-9'));
   });
 
   it('the settings user expander lists logged-in users and switches without the auth screen', () => {

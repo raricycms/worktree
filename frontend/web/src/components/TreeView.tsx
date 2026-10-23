@@ -1,8 +1,9 @@
+import { useState } from 'react';
 import type { FilteredNode } from '@worktree/core';
 import type { DisplayPrefs } from '../config';
 import { useI18n } from '../i18n';
 import { RootLabel } from './NodeLabel';
-import { TreeNode } from './TreeNode';
+import { InlineAddField, TREE_GUTTER_PX, TreeNode } from './TreeNode';
 import type { DiffStyle } from './TreeNode';
 
 export interface TreeViewProps {
@@ -20,11 +21,16 @@ export interface TreeViewProps {
   highlightMatches?: boolean;
   /** Conflict page: nodes differing from the other version, by style. */
   highlight?: ReadonlyMap<string, DiffStyle>;
+  /** Toggles completion from a row; omitted (and hidden) in read-only trees. */
+  onToggleComplete?: (id: string) => void;
+  /** Adds a child to the root; omitted (and hidden) in read-only trees. */
+  onAddChild?: (parentId: string, name: string) => void;
 }
 
 export function TreeView(props: TreeViewProps) {
   const { t } = useI18n();
   const { root, expanded, selectedId, display, onToggle, onSelect, readOnly, filterActive, highlightMatches } = props;
+  const [adding, setAdding] = useState(false);
   const node = root.node;
   const status = node.status ? 'completed' : 'open';
   const rootSelected = selectedId === node.id;
@@ -33,6 +39,8 @@ export function TreeView(props: TreeViewProps) {
   const rootMatched = filterActive === true && root.matched;
   const rootContext = filterActive === true && !root.matched;
   const rootDiff = props.highlight?.get(node.id);
+  const onToggleComplete = readOnly === true ? undefined : props.onToggleComplete;
+  const onAddChild = readOnly === true ? undefined : props.onAddChild;
 
   return (
     <div className="tree" data-testid="tree-view">
@@ -42,6 +50,9 @@ export function TreeView(props: TreeViewProps) {
         data-depth={0}
         onClick={readOnly === true ? undefined : () => onSelect(node.id)}
       >
+        {/* The root has no task state of its own, but rows below reserve the
+            checkbox column, so the headline starts on the same ladder. */}
+        {onToggleComplete !== undefined && <span className="tree__check-spacer" aria-hidden="true" />}
         {readOnly === true ? (
           <span
             className="tree__label-button"
@@ -73,7 +84,30 @@ export function TreeView(props: TreeViewProps) {
             <RootLabel node={node} display={display} name={t('tree.rootName')} />
           </button>
         )}
+        {onAddChild !== undefined && (
+          <button
+            type="button"
+            className="tree__add"
+            aria-label={t('tree.addChild')}
+            aria-expanded={adding}
+            data-testid={`node-add-${node.id}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setAdding(!adding);
+            }}
+          >
+            +
+          </button>
+        )}
       </div>
+      {adding && onAddChild !== undefined && (
+        <InlineAddField
+          parentId={node.id}
+          offsetPx={onToggleComplete !== undefined ? TREE_GUTTER_PX : 0}
+          onAdd={onAddChild}
+          onClose={() => setAdding(false)}
+        />
+      )}
       {root.children.length === 0 && (
         <div className="empty">{filterActive === true ? t('tree.filteredEmpty') : t('tree.empty')}</div>
       )}
@@ -92,6 +126,8 @@ export function TreeView(props: TreeViewProps) {
           filterActive={filterActive}
           highlightMatches={highlightMatches}
           highlight={props.highlight}
+          onToggleComplete={props.onToggleComplete}
+          onAddChild={props.onAddChild}
         />
       ))}
     </div>

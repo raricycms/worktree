@@ -13,11 +13,32 @@ import type { Semester } from '@worktree/agent';
 import { isThemePref } from './theme';
 import type { ThemePref } from './theme';
 
-export const DEFAULT_SERVER = 'https://worktree.fuyuzheju.cn';
+const HOSTED_SERVER = 'https://wkt.raricy.com';
+
+/**
+ * The server this build talks to by default. A production bundle is served by
+ * the same nginx that fronts the API, so the page origin is the only origin
+ * that is correct without configuration. Local development keeps the hosted
+ * fallback: Vite serves the app on a port the API does not listen on.
+ */
+function defaultServer(): string {
+  const { protocol, hostname, origin } = window.location;
+  const httpOrigin = protocol === 'http:' || protocol === 'https:';
+  const loopback = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
+  return httpOrigin && !loopback ? origin : HOSTED_SERVER;
+}
+
+export const DEFAULT_SERVER = defaultServer();
 export const LOCAL_USER = 'local';
 
 /** Known remote servers, offered in Settings as one-click presets. */
-export const SERVER_PRESETS = [DEFAULT_SERVER, 'https://wkt.raricy.com'];
+export const SERVER_PRESETS = [...new Set([DEFAULT_SERVER, HOSTED_SERVER])];
+
+/** UI language for a fresh install: Chinese browsers start in Chinese. */
+function defaultLang(): string {
+  const tag = typeof navigator === 'undefined' ? '' : navigator.language;
+  return tag.toLowerCase().startsWith('zh') ? 'zh' : 'en';
+}
 
 export const DEFAULT_AI_BASE_URL = 'https://api.deepseek.com';
 export const DEFAULT_AI_MODEL = 'deepseek-flash';
@@ -74,6 +95,11 @@ export interface AppConfig {
   theme: ThemePref;
   /** Chat endpoint and teaching calendar for the scheduling agent. */
   ai: AiConfig;
+  /**
+   * The first-run identity choice has been made (account or offline). Kept so
+   * an empty offline workspace is not asked again on every launch.
+   */
+  onboarded: boolean;
 }
 
 const CONFIG_KEY = 'worktree.config';
@@ -81,14 +107,15 @@ const CONFIG_KEY = 'worktree.config';
 const defaultConfig: AppConfig = {
   serverUrl: DEFAULT_SERVER,
   user: LOCAL_USER,
-  display: { showId: true, showWeight: true, showReminders: true, filterMode: 'hide' },
+  display: { showId: false, showWeight: false, showReminders: true, filterMode: 'hide' },
   filter: {},
-  lang: 'en',
+  lang: defaultLang(),
   calendarDays: 7,
   autoReminder: { enabled: true, pct: DEFAULT_AUTO_REMINDER_PCT },
   quickAddPath: DEFAULT_CAPTURE_PATH,
   theme: 'system',
   ai: DEFAULT_AI,
+  onboarded: false,
 };
 
 /** A fresh default config: callers may hold onto the result without sharing state. */
@@ -195,6 +222,10 @@ export function loadConfig(): AppConfig {
       quickAddPath: parseCapturePath(parsed.quickAddPath),
       theme: isThemePref(parsed.theme) ? parsed.theme : defaultConfig.theme,
       ai: parseAi(parsed.ai),
+      // A stored config written before the first-run choice existed belongs to
+      // a returning user: do not re-ask them. Fresh browsers have no config at
+      // all and still get the first-run screen.
+      onboarded: parsed.onboarded === undefined ? true : parsed.onboarded === true,
     };
   } catch {
     return defaultConfigCopy();

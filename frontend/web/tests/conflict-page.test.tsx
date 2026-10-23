@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ROOT_ID } from '@worktree/core';
 import type { WorktreeClient } from '@worktree/client';
@@ -6,6 +6,18 @@ import type { Conflict } from '@worktree/client';
 import { I18nProvider } from '../src/i18n';
 import { ConflictPage } from '../src/pages/ConflictPage';
 import type { DisplayPrefs } from '../src/config';
+
+vi.mock('../src/data-transfer', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/data-transfer')>();
+  return { ...actual, downloadHistoryBackup: vi.fn() };
+});
+
+import { downloadHistoryBackup } from '../src/data-transfer';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.mocked(downloadHistoryBackup).mockClear();
+});
 
 const display: DisplayPrefs = { showId: true, showWeight: true, showReminders: true, filterMode: 'hide' };
 
@@ -177,11 +189,61 @@ describe('ConflictPage', () => {
     expect(localView.textContent).toContain('beta2');
   });
 
-  it('resolves with the server branch', async () => {
+  it('asks before keeping the server version and resolves on accept', async () => {
     const resolveConflict = vi.fn(async () => undefined);
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     renderPage(resolveConflict);
     fireEvent.click(screen.getByRole('button', { name: 'Keep server version' }));
     await waitFor(() => expect(resolveConflict).toHaveBeenCalledWith('server'));
+    expect(confirm).toHaveBeenCalledWith(
+      'Keep the server version? 1 local changes will be discarded, and this cannot be undone.',
+    );
+  });
+
+  it('does not resolve when the server-version confirmation is declined', () => {
+    const resolveConflict = vi.fn(async () => undefined);
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+    renderPage(resolveConflict);
+    fireEvent.click(screen.getByRole('button', { name: 'Keep server version' }));
+    expect(resolveConflict).not.toHaveBeenCalled();
+  });
+
+  it('offers the backup hint next to the resolution buttons', () => {
+    renderPage(async () => undefined);
+    expect(screen.getByText('Save a JSON copy of your pending branch before choosing.')).toBeTruthy();
+  });
+
+  it('downloads the local version as a backup (base plus the added ops)', () => {
+    renderPage(async () => undefined);
+    fireEvent.click(screen.getByRole('button', { name: 'Download my version first' }));
+    expect(downloadHistoryBackup).toHaveBeenCalledTimes(1);
+    const [filename, backup] = vi.mocked(downloadHistoryBackup).mock.calls[0];
+    expect(filename).toMatch(/^worktree-[\w.-]+-\d{4}-\d{2}-\d{2}\.json$/);
+    expect(backup.format).toBe('worktree-history');
+    // The agreed base entry plus the pending add; the pending rename applies to it.
+    expect(backup.entries.map((entry) => entry.id)).toEqual(['op1', 'op3']);
+    expect(screen.getByTestId('conflict-backup-done').textContent).toBe('Downloaded your version.');
+  });
+
+  it('drops the base tail a pending remove covers when downloading', () => {
+    const undoConflict: Conflict = {
+      base: [
+        { id: 'op1', op: { kind: 'add', parentId: ROOT_ID, id: 'aaaa-1', name: 'alpha', weight: 1 } },
+        { id: 'op2', op: { kind: 'add', parentId: ROOT_ID, id: 'bbbb-1', name: 'beta', weight: 2 } },
+      ],
+      baseId: 'op2',
+      cursorFound: true,
+      serverBranch: [],
+      localBranch: [{ kind: 'remove', id: 'op2' }],
+    };
+    render(
+      <I18nProvider lang="en">
+        <ConflictPage conflict={undoConflict} client={makeClient(async () => undefined)} display={display} />
+      </I18nProvider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Download my version first' }));
+    const [, backup] = vi.mocked(downloadHistoryBackup).mock.calls[0];
+    expect(backup.entries.map((entry) => entry.id)).toEqual(['op1']);
   });
 
   it('resolves with the local branch (no per-op filtering in the page)', async () => {

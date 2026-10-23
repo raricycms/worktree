@@ -9,8 +9,15 @@ import { ancestorIds, findNode } from '../tree-utils';
 import { TreeView } from '../components/TreeView';
 import { FilterBar } from '../components/FilterBar';
 import { NodeDetailPanel } from '../components/NodeDetailPanel';
+import { TodaySection } from '../components/TodaySection';
+import { useToast } from '../components/Toast';
 import { highlightView } from '../filter-view';
 import { useFilter } from '../filter-context';
+import { uncompletedDescendants } from '../today';
+
+function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
 
 export function TreePage(props: {
   tree: Node;
@@ -23,9 +30,12 @@ export function TreePage(props: {
   focusNode?: { id: string; nonce: number } | null;
   /** Forwarded to the detail panel for auto-reminder creation. */
   autoReminder?: AutoReminderSetting;
+  /** Test seam for the Today section; defaults to the real clock. */
+  nowMs?: number;
 }) {
   const { t } = useI18n();
-  const { tree, client, display, initialNodeId, focusNode, autoReminder } = props;
+  const { tree, client, display, initialNodeId, focusNode, autoReminder, nowMs } = props;
+  const toast = useToast();
   // Below 992px the side column is hidden by CSS, so the detail has to become
   // a sheet at the same breakpoint or 768–991px would show no detail at all.
   const compact = useMediaQuery('(max-width: 991px)');
@@ -92,6 +102,40 @@ export function TreePage(props: {
 
   const close = (): void => setSelectedId(null);
 
+  /**
+   * Completion is children-first: the client rejects completing a node whose
+   * descendants are still open, so the whole uncompleted subtree is completed
+   * in post-order first. That out-of-sight cascade is confirmed once, with the
+   * same copy the detail panel uses.
+   */
+  const toggleComplete = (id: string): void => {
+    const node = findNode(tree, id);
+    if (node === undefined) throw new Error(`unknown node id: ${id}`);
+    try {
+      if (node.status) {
+        client.setCompleted(id, false);
+        return;
+      }
+      const pending = uncompletedDescendants(node);
+      if (pending.length > 0) {
+        const message = t('detail.confirmCompleteTree', { name: node.name, count: pending.length });
+        if (!window.confirm(message)) return;
+        for (const childId of pending) client.setCompleted(childId, true);
+      }
+      client.setCompleted(id, true);
+    } catch (e) {
+      toast.error(errMsg(e));
+    }
+  };
+
+  /** Inline add failures are reported in the row by InlineAddField. */
+  const addChild = (parentId: string, name: string): void => {
+    client.addNode(parentId, name);
+    // A leaf parent has nothing to expand before its first child; open it so
+    // the node just added is visible instead of silently inserted out of sight.
+    setExpanded((prev) => (prev.has(parentId) ? prev : new Set(prev).add(parentId)));
+  };
+
   return (
     <div ref={rootRef} className="page-wrap">
       <header className="page-head">
@@ -102,6 +146,12 @@ export function TreePage(props: {
       <div className="page-body">
         <div className="workbench">
           <div className="workbench__main">
+            <TodaySection
+              tree={tree}
+              onSelect={select}
+              onToggleComplete={toggleComplete}
+              nowMs={nowMs}
+            />
             <div className="tree-panel">
               <FilterBar filter={filter} mode={mode} onFilterChange={setFilter} onModeChange={setMode} />
               <div className="card tree-panel__surface">
@@ -114,6 +164,8 @@ export function TreePage(props: {
                   onSelect={select}
                   filterActive={filterActive}
                   highlightMatches={mode === 'highlight'}
+                  onToggleComplete={toggleComplete}
+                  onAddChild={addChild}
                 />
               </div>
             </div>

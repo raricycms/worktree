@@ -17,6 +17,7 @@ import { SettingsPage } from './pages/SettingsPage';
 import { ConflictPage } from './pages/ConflictPage';
 import { RepairPage } from './pages/RepairPage';
 import { AuthPage } from './pages/AuthPage';
+import { FirstRunPage } from './pages/FirstRunPage';
 import { AgentPage } from './pages/AgentPage';
 
 export type Tab = 'tree' | 'calendar' | 'agent' | 'stats' | 'settings';
@@ -37,6 +38,8 @@ export default function App() {
   // Explicitly requested login screen ("log in another user"); the only way
   // to reach the auth page while a valid token exists.
   const [showAuth, setShowAuth] = useState(false);
+  // First-run offers both entry points; the account button starts at register.
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
 
   const token = config.user === LOCAL_USER ? null : loadToken(config.serverUrl, config.user)?.token ?? null;
 
@@ -68,7 +71,7 @@ export default function App() {
     // The server-confirmed username is authoritative: the user may have typed
     // a different name than config.user, and the token belongs to the former.
     saveToken(config.serverUrl, username, stored);
-    updateConfig({ user: username });
+    updateConfig({ user: username, onboarded: true });
     setShowAuth(false);
     setClientEpoch((e) => e + 1);
   };
@@ -76,7 +79,9 @@ export default function App() {
   /** After logout (or a revoked-token relogin): back to the offline user. */
   const logout = (): void => {
     clearToken(config.serverUrl, config.user);
-    updateConfig({ user: LOCAL_USER });
+    // The identity choice is already made; do not show the first-run screen
+    // again for someone who just chose to work offline.
+    updateConfig({ user: LOCAL_USER, onboarded: true });
     setClientEpoch((e) => e + 1);
   };
 
@@ -98,9 +103,11 @@ export default function App() {
         <AuthPage
           serverUrl={config.serverUrl}
           user={config.user}
+          initialMode={authMode}
+          localDataCount={config.user === LOCAL_USER ? (snap?.client.getConfirmed().length ?? 0) : 0}
           onAuthed={onAuthed}
           onUseLocal={() => {
-            updateConfig({ user: LOCAL_USER });
+            updateConfig({ user: LOCAL_USER, onboarded: true });
             setShowAuth(false);
           }}
         />
@@ -108,6 +115,11 @@ export default function App() {
     );
   }
   if (!snap) return null;
+
+  // A fresh browser starts as the offline `local` user with no data. The
+  // choice renders inside the shell so quick capture and topbar links keep
+  // working while it is open.
+  const firstRun = config.user === LOCAL_USER && !config.onboarded && snap.tree.children.length === 0;
 
   return (
     <I18nProvider lang={config.lang}>
@@ -130,7 +142,20 @@ export default function App() {
             updateConfig={updateConfig}
             clearCache={clearCache}
             onLogout={logout}
-            onLoginOther={() => setShowAuth(true)}
+            onLoginOther={() => {
+              setAuthMode('login');
+              setShowAuth(true);
+            }}
+            firstRun={firstRun}
+            onFirstRunAccount={() => {
+              setAuthMode('register');
+              setShowAuth(true);
+            }}
+            onFirstRunLogin={() => {
+              setAuthMode('login');
+              setShowAuth(true);
+            }}
+            onFirstRunStayLocal={() => updateConfig({ onboarded: true })}
           />
         </FilterProvider>
       )}
@@ -147,9 +172,27 @@ function Shell(props: {
   clearCache: () => void;
   onLogout: () => void;
   onLoginOther: () => void;
+  /** No identity choice has been made yet: the tree tab shows it instead. */
+  firstRun: boolean;
+  onFirstRunAccount: () => void;
+  onFirstRunLogin: () => void;
+  onFirstRunStayLocal: () => void;
 }) {
   const { t } = useI18n();
-  const { config, tab, setTab, snap, updateConfig, clearCache, onLogout, onLoginOther } = props;
+  const {
+    config,
+    tab,
+    setTab,
+    snap,
+    updateConfig,
+    clearCache,
+    onLogout,
+    onLoginOther,
+    firstRun,
+    onFirstRunAccount,
+    onFirstRunLogin,
+    onFirstRunStayLocal,
+  } = props;
   const { client, tree, online, pendingCount, authFailed, storageFailure } = snap;
 
   // Deep link from a notification click: ?node=<id> on first load, or a
@@ -212,6 +255,17 @@ function Shell(props: {
           <span className="brand">{t('app.title')}</span>
           <Tabs active={tab} onChange={setTab} />
           <div className="topbar__actions">
+            {config.user === LOCAL_USER && tree.children.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setTab('settings')}
+                data-testid="save-work"
+                title={t('firstRun.saveWorkHint')}
+                className="btn btn--sm"
+              >
+                {t('firstRun.saveWork')}
+              </button>
+            )}
             <StatusBar
               online={online}
               pendingCount={pendingCount}
@@ -231,7 +285,7 @@ function Shell(props: {
         </div>
       )}
       <main className="app__main" id="main-content">
-        {tab === 'tree' && (
+        {tab === 'tree' && !firstRun && (
           <TreePage
             tree={tree}
             client={client}
@@ -240,6 +294,13 @@ function Shell(props: {
             initialNodeId={initialNodeId ?? undefined}
             focusNode={focusNode}
             autoReminder={config.autoReminder}
+          />
+        )}
+        {tab === 'tree' && firstRun && (
+          <FirstRunPage
+            onCreateAccount={onFirstRunAccount}
+            onLogin={onFirstRunLogin}
+            onStayLocal={onFirstRunStayLocal}
           />
         )}
         {tab === 'calendar' && (

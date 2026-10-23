@@ -168,9 +168,12 @@ Page-scoped classes (page layout that is not shared) live in
 `src/styles/views-tree.css`, `views-detail.css`, `views-calendar.css` and
 `views-content.css`; they may extend the vocabulary but never redefine it.
 The tree page owns `.tree-panel__filters`, `.filter-panel`
-(`__clip`, `__content`, `__actions`), `.filter-bar__chevron` and
-`.node-picker__filters`; the calendar page owns the sticky `.cal__head`
-overrides; the settings/detail pages own their row layout.
+(`__clip`, `__content`, `__actions`), `.filter-bar__chevron`, `.node-picker__filters`,
+the row completion/add affordances (`.tree__complete`, `.tree__check-spacer`,
+`.tree__indent`, `.tree__add`, `.tree__add-row`...) and the daily loop
+(`.today`, `.today__head`, `.today__row`, `.today__label`, `.today__time`...);
+the calendar page owns the sticky `.cal__head` overrides; the settings/detail
+pages own their row layout.
 
 ## JSX rules
 

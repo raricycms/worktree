@@ -743,11 +743,16 @@
   }
 
   /* ---------- expand-select: options unfold inside the page ---------- */
+  /* Closed, the surface is the one-line pill, so its radius is half the line
+     height. The 999px pill token must not be used here: a huge radius is
+     re-clamped against the growing box, so the corners would balloon during
+     the unfold. */
   .expand-select {
+    --expand-line: 42px;
     display: flex;
     flex-direction: column;
     min-width: 0;
-    border-radius: var(--r-pill);
+    border-radius: calc(var(--expand-line) / 2);
     background: var(--inset);
     /* The surface morphs between the pill and the field radius while it grows.
        Clipping to that animated radius keeps every descendant (the hover tint,
@@ -772,9 +777,9 @@
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    min-height: 42px;
+    min-height: var(--expand-line);
     padding: 0 16px;
-    border-radius: var(--r-pill);
+    border-radius: inherit;
     color: var(--ink);
     font-size: var(--fs-sm);
     text-align: left;

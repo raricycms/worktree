@@ -28,6 +28,7 @@ function makeConfig(ai: Partial<AiConfig> = {}): AppConfig {
     quickAddPath: '/tmp',
     theme: 'system',
     ai: { baseUrl: 'https://api.deepseek.com', model: 'deepseek-flash', apiKey: 'sk-test', semester: null, ...ai },
+    onboarded: true,
   };
 }
 

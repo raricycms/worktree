@@ -5,6 +5,7 @@ export interface UserRow {
   id: number;
   name: string;
   passwordHash: string | null;
+  recoveryHash: string | null;
   headOpId: string | null;
 }
 
@@ -47,8 +48,13 @@ interface Tx {
   user: {
     findUnique: (args: { where: { id: number } | { name: string } }) => Promise<UserRow | null>;
     findMany: () => Promise<UserRow[]>;
-    create: (args: { data: { name: string; passwordHash: string | null } }) => Promise<UserRow>;
-    update: (args: { where: { id: number }; data: { headOpId: string | null } }) => Promise<UserRow>;
+    create: (args: {
+      data: { name: string; passwordHash: string | null; recoveryHash?: string | null };
+    }) => Promise<UserRow>;
+    update: (args: {
+      where: { id: number };
+      data: { headOpId?: string | null; passwordHash?: string; recoveryHash?: string };
+    }) => Promise<UserRow>;
   };
   historyNode: {
     findMany: (args: { where?: { userId?: number; id?: { gt: number } }; orderBy: { id: 'asc' } }) => Promise<HistoryRow[]>;
@@ -61,7 +67,7 @@ interface Tx {
     create: (args: { data: { tokenHash: string; userId: number; label: string | null } }) => Promise<TokenRow>;
     findUnique: (args: { where: { tokenHash: string }; include: { user: true } }) => Promise<(TokenRow & { user: UserRow }) | null>;
     findMany: (args: { where: { userId: number }; orderBy: { id: 'asc' } }) => Promise<TokenRow[]>;
-    deleteMany: (args: { where: { id: number; userId: number } }) => Promise<{ count: number }>;
+    deleteMany: (args: { where: { userId: number; id?: number | { not: number } } }) => Promise<{ count: number }>;
     update: (args: { where: { id: number }; data: { lastUsedAt: Date } }) => Promise<TokenRow>;
   };
   pushSubscription: {
@@ -141,14 +147,22 @@ const hoisted = vi.hoisted(() => {
             clientVersion: 'test',
           });
         }
-        const row: UserRow = { id: nextUserId++, name: data.name, passwordHash: data.passwordHash, headOpId: null };
+        const row: UserRow = {
+          id: nextUserId++,
+          name: data.name,
+          passwordHash: data.passwordHash,
+          recoveryHash: data.recoveryHash ?? null,
+          headOpId: null,
+        };
         users.set(row.id, row);
         usersByName.set(row.name, row.id);
         return row;
       },
       async update({ where, data }) {
         const row = mustGetUser(where.id);
-        row.headOpId = data.headOpId;
+        if (data.headOpId !== undefined) row.headOpId = data.headOpId;
+        if (data.passwordHash !== undefined) row.passwordHash = data.passwordHash;
+        if (data.recoveryHash !== undefined) row.recoveryHash = data.recoveryHash;
         return row;
       },
     },
@@ -229,11 +243,21 @@ const hoisted = vi.hoisted(() => {
         return [...tokens.values()].filter((t) => t.userId === where.userId).sort((a, b) => a.id - b.id);
       },
       async deleteMany({ where }) {
-        const row = tokens.get(where.id);
-        if (!row || row.userId !== where.userId) return { count: 0 };
-        tokens.delete(row.id);
-        tokensByHash.delete(row.tokenHash);
-        return { count: 1 };
+        let count = 0;
+        for (const [id, row] of [...tokens]) {
+          if (row.userId !== where.userId) continue;
+          if (where.id !== undefined) {
+            if (typeof where.id === 'number') {
+              if (row.id !== where.id) continue;
+            } else if (row.id === where.id.not) {
+              continue;
+            }
+          }
+          tokens.delete(id);
+          tokensByHash.delete(row.tokenHash);
+          count++;
+        }
+        return { count };
       },
       async update({ where, data }) {
         const row = mustGetToken(where.id);
@@ -384,7 +408,7 @@ const hoisted = vi.hoisted(() => {
   const seedUser = async (name: string): Promise<number> => {
     const existing = usersByName.get(name);
     if (existing !== undefined) return existing;
-    const row: UserRow = { id: nextUserId++, name, passwordHash: null, headOpId: null };
+    const row: UserRow = { id: nextUserId++, name, passwordHash: null, recoveryHash: null, headOpId: null };
     users.set(row.id, row);
     usersByName.set(row.name, row.id);
     return row.id;

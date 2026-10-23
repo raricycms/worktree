@@ -28,6 +28,40 @@ export interface AuthResponse {
   tokenId: number;
 }
 
+/** POST /register success body: the auth response plus the one-time recovery
+ * code. The server stores only its hash; a second register never reveals it.
+ * Servers released before account recovery omit the code — the client then
+ * skips the one-time-code panel and keeps the plain auth flow. */
+export interface RegisterResponse extends AuthResponse {
+  recoveryCode?: string;
+}
+
+/** POST /recover request body. The code is the only credential: it resets the
+ * password when every device token is gone. */
+export interface RecoverRequest {
+  username: string;
+  recoveryCode: string;
+  newPassword: string;
+}
+
+/** POST /password request body (authenticated). */
+export interface PasswordChangeRequest {
+  currentPassword: string;
+  newPassword: string;
+}
+
+/** POST /recovery-code request body (authenticated): rotate the code without
+ * changing the password. */
+export interface RecoveryCodeRequest {
+  currentPassword: string;
+}
+
+/** Success body of /recover, /password and /recovery-code: the new recovery
+ * code, shown exactly once. */
+export interface RecoveryCodeResponse {
+  recoveryCode: string;
+}
+
 /** GET /tokens response body. `current` marks the token making the request. */
 export interface TokensResponse {
   tokens: Array<{

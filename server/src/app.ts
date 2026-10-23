@@ -1,6 +1,7 @@
 import cors from 'cors';
 import express from 'express';
 import type { ErrorRequestHandler } from 'express';
+import { isRecord } from '@worktree/core';
 import { config } from './config';
 import { createRegistrationGate } from './registration';
 import { offlineGuard } from './state';
@@ -14,6 +15,14 @@ import { authedAuthRouter, publicAuthRouter } from './routes/auth';
 import { pushRouter } from './routes/push';
 import { userMiddleware } from './user';
 
+/** Importing a backup rewrites the whole history, so requests can be megabytes. */
+const JSON_BODY_LIMIT = '8mb';
+
+/** A body-parser "request entity too large" error (the 413 it raises by itself). */
+function isEntityTooLarge(err: unknown): boolean {
+  return isRecord(err) && err.type === 'entity.too.large';
+}
+
 export interface AppContext {
   store: HistoryStore;
   hub: WsHub;
@@ -22,7 +31,7 @@ export interface AppContext {
 export function createApp(ctx: AppContext): express.Express {
   const app = express();
   app.use(cors());
-  app.use(express.json());
+  app.use(express.json({ limit: JSON_BODY_LIMIT }));
 
   // register/login are the only unauthenticated endpoints; they run before
   // the auth middleware. Everything below requires a valid bearer token.
@@ -42,6 +51,12 @@ export function createApp(ctx: AppContext): express.Express {
   app.use('/api/history', historyRouter(ctx.store));
 
   const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
+    // A history import larger than the limit is the user's data, not an
+    // internal failure: answer with a deliberate 413 instead of a 500.
+    if (isEntityTooLarge(err)) {
+      res.status(413).json({ error: 'history too large' });
+      return;
+    }
     console.error(err);
     res.status(500).json({ error: 'internal error' });
   };

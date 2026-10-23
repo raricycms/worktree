@@ -1,14 +1,22 @@
+import { useEffect, useRef, useState } from 'react';
 import type { FilteredNode } from '@worktree/core';
 import type { DisplayPrefs } from '../config';
 import { useI18n } from '../i18n';
-import { ChevronRightIcon } from './icons';
+import { ChevronRightIcon, XIcon } from './icons';
 import { NodeLabel } from './NodeLabel';
 
 /** How a node differs from the other side of a conflict. */
 export type DiffStyle = 'only' | 'changed';
 
 /** Horizontal distance per tree level, in px. */
-const INDENT_PX = 18;
+export const TREE_INDENT_PX = 18;
+
+/**
+ * Width reserved to the left of the indentation for the completion checkbox.
+ * It lives outside the indent ladder so the branch guides keep landing on the
+ * disclosure column of every level.
+ */
+export const TREE_GUTTER_PX = 32;
 
 export interface TreeNodeProps {
   view: FilteredNode;
@@ -32,6 +40,138 @@ export interface TreeNodeProps {
   highlightMatches?: boolean;
   /** Conflict page: nodes differing from the other version, by style. */
   highlight?: ReadonlyMap<string, DiffStyle>;
+  /** Toggles completion; omitted (and hidden) in read-only trees. */
+  onToggleComplete?: (id: string) => void;
+  /** Adds a child to `parentId`; omitted (and hidden) in read-only trees. */
+  onAddChild?: (parentId: string, name: string) => void;
+}
+
+function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+/**
+ * The native checkbox carries the state for assistive tech; the `.check`
+ * recipe paints it. The wrapper stops the click so toggling a row never also
+ * selects it.
+ */
+export function CompletionCheckbox(props: {
+  id: string;
+  completed: boolean;
+  testId: string;
+  onChange: () => void;
+}) {
+  const { t } = useI18n();
+  const label = props.completed ? t('tree.uncomplete') : t('tree.complete');
+  return (
+    <label className="check tree__complete" title={label} onClick={(e) => e.stopPropagation()}>
+      <input
+        type="checkbox"
+        checked={props.completed}
+        aria-label={label}
+        data-testid={props.testId}
+        onChange={props.onChange}
+        onClick={(e) => e.stopPropagation()}
+      />
+    </label>
+  );
+}
+
+/**
+ * The inline child-add field. It stays mounted after a successful add so the
+ * user can type the next sibling straight away: Enter submits, Esc or the
+ * close button collapses it, and a rejected name (duplicate sibling, invalid
+ * characters) reports in place instead of closing the field.
+ */
+export function InlineAddField(props: {
+  parentId: string;
+  /** Left offset in px so the field lines up under the row it belongs to. */
+  offsetPx: number;
+  onAdd: (parentId: string, name: string) => void;
+  onClose: () => void;
+}) {
+  const { t } = useI18n();
+  const { parentId, offsetPx, onAdd, onClose } = props;
+  const [name, setName] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  const close = (): void => {
+    setName('');
+    setError(null);
+    onClose();
+  };
+
+  const submit = (): void => {
+    const trimmed = name.trim();
+    if (trimmed === '') return;
+    try {
+      onAdd(parentId, trimmed);
+      setName('');
+      setError(null);
+      inputRef.current?.focus();
+    } catch (e) {
+      setError(errMsg(e));
+    }
+  };
+
+  return (
+    <div
+      className="tree__add-row"
+      style={{ paddingLeft: `${offsetPx}px` }}
+      data-testid={`node-add-row-${parentId}`}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <form
+        className="tree__add-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
+      >
+        <input
+          ref={inputRef}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.preventDefault();
+              close();
+              return;
+            }
+            // Enter while an IME is composing confirms the candidate, not the field.
+            if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              submit();
+            }
+          }}
+          placeholder={t('tree.addChildPlaceholder')}
+          aria-label={t('tree.addChild')}
+          aria-invalid={error !== null}
+          data-testid={`node-add-input-${parentId}`}
+          className="input input--compact tree__add-input"
+        />
+        <button
+          type="button"
+          className="btn btn--icon tree__add-close"
+          aria-label={t('detail.close')}
+          data-testid={`node-add-close-${parentId}`}
+          onClick={close}
+        >
+          <XIcon className="icon icon--sm" />
+        </button>
+      </form>
+      {error !== null && (
+        <p className="form__error tree__add-error" role="alert" data-testid={`node-add-error-${parentId}`}>
+          {t('tree.addError', { message: error })}
+        </p>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -47,10 +187,16 @@ function TreeGuides(props: {
   openAncestors: readonly boolean[];
   /** This row's children are open: its branch continues down the row. */
   dropLine: boolean;
+  /** Leading gutter (completion checkbox) the indent ladder starts after. */
+  offsetPx: number;
 }) {
-  const { depth, openAncestors, dropLine } = props;
+  const { depth, openAncestors, dropLine, offsetPx } = props;
   return (
-    <span className="tree__guides" aria-hidden="true">
+    <span
+      className="tree__guides"
+      style={offsetPx === 0 ? undefined : { left: `${offsetPx}px` }}
+      aria-hidden="true"
+    >
       {Array.from({ length: depth }, (_, index) => {
         if (index === depth - 1) return <span key={index} className="tree__guide tree__guide--elbow" />;
         return (
@@ -83,6 +229,7 @@ export function TreeNode(props: TreeNodeProps) {
     highlightMatches,
   } = props;
   const { t } = useI18n();
+  const [adding, setAdding] = useState(false);
   const node = view.node;
   const hasChildren = view.children.length > 0;
   const isOpen = expanded.has(node.id);
@@ -93,6 +240,8 @@ export function TreeNode(props: TreeNodeProps) {
   const context = filterActive === true && !view.matched;
   const showMatchDot = matched && highlightMatches === true;
   const status = node.status ? 'completed' : 'open';
+  const onToggleComplete = readOnly === true ? undefined : props.onToggleComplete;
+  const onAddChild = readOnly === true ? undefined : props.onAddChild;
 
   return (
     <>
@@ -101,10 +250,30 @@ export function TreeNode(props: TreeNodeProps) {
         data-node-id={node.id}
         data-depth={depth}
         data-last={isLast === true ? 'true' : 'false'}
-        style={{ paddingLeft: `${depth * INDENT_PX}px` }}
+        style={onToggleComplete === undefined ? { paddingLeft: `${depth * TREE_INDENT_PX}px` } : undefined}
         onClick={readOnly === true ? undefined : () => onSelect(node.id)}
       >
-        <TreeGuides depth={depth} openAncestors={ancestors} dropLine={hasChildren && isOpen} />
+        <TreeGuides
+          depth={depth}
+          openAncestors={ancestors}
+          dropLine={hasChildren && isOpen}
+          offsetPx={onToggleComplete !== undefined ? TREE_GUTTER_PX : 0}
+        />
+        {onToggleComplete !== undefined && (
+          <CompletionCheckbox
+            id={node.id}
+            completed={node.status}
+            testId={`node-complete-${node.id}`}
+            onChange={() => onToggleComplete(node.id)}
+          />
+        )}
+        {onToggleComplete !== undefined && (
+          <span
+            className="tree__indent"
+            aria-hidden="true"
+            style={{ width: `${depth * TREE_INDENT_PX}px` }}
+          />
+        )}
         {hasChildren ? (
           <button
             type="button"
@@ -152,7 +321,30 @@ export function TreeNode(props: TreeNodeProps) {
             <NodeLabel node={node} display={display} matched={showMatchDot} />
           </button>
         )}
+        {onAddChild !== undefined && (
+          <button
+            type="button"
+            className="tree__add"
+            aria-label={t('tree.addChild')}
+            aria-expanded={adding}
+            data-testid={`node-add-${node.id}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setAdding(!adding);
+            }}
+          >
+            +
+          </button>
+        )}
       </div>
+      {adding && onAddChild !== undefined && (
+        <InlineAddField
+          parentId={node.id}
+          offsetPx={(onToggleComplete !== undefined ? TREE_GUTTER_PX : 0) + depth * TREE_INDENT_PX + TREE_INDENT_PX}
+          onAdd={onAddChild}
+          onClose={() => setAdding(false)}
+        />
+      )}
       {hasChildren &&
         isOpen &&
         view.children.map((child, index) => (
@@ -171,6 +363,8 @@ export function TreeNode(props: TreeNodeProps) {
             filterActive={filterActive}
             highlightMatches={highlightMatches}
             highlight={props.highlight}
+            onToggleComplete={props.onToggleComplete}
+            onAddChild={props.onAddChild}
           />
         ))}
     </>

@@ -23,8 +23,11 @@ Authentication endpoints:
 body: {username, password, inviteCode?}
 - creates the user (password hashed with scrypt, stored self-describing:
   scrypt$N=16384,r=8,p=1$<salt>$<key>) and issues a token
-- 201 {username, token, tokenId}; 400 invalid username/password
+- 201 {username, token, tokenId, recoveryCode}; 400 invalid username/password
   (password: 8-1024 chars); 409 {error: 'username taken'}
+- recoveryCode is a 20-hex-char (80-bit) one-time secret, displayed in five
+  dash-separated groups; the server stores only its SHA-256 and never shows it
+  again. It is the only credential that can reset a forgotten password.
 - inviteCode is reserved for a future invite-only registration mode; it is
   validated for shape but ignored while registration is open. REGISTRATION_MODE
   accepts only `open` today — any other value (including `invite`) makes the
@@ -36,7 +39,25 @@ body: {username, password, label?}   (label = device name, ≤100 chars)
   for a wrong password and an unknown user alike (no username enumeration;
   unknown users burn the same scrypt time)
 
+/api/recover
+body: {username, recoveryCode, newPassword}
+- resets the password with the one-time code; issues no token
+- 200 {recoveryCode} — the code is rotated, every device token is revoked, and
+  the new code is returned once; 400 {error: 'invalid recovery code'} for a
+  wrong code, an unknown user, or an account predating recovery codes (the same
+  answer, so usernames are not enumerable); 400 invalid new password
+- a user whose account has no recovery code yet can set one by changing the
+  password or rotating the code while signed in
+
 /api/logout         (authed)  revokes the presented token → {ok: true}
+/api/password       (authed)  body: {currentPassword, newPassword}
+                              → 200 {recoveryCode} (password changed, code
+                              rotated, every OTHER device token revoked);
+                              401 {error: 'invalid current password'};
+                              400 invalid new password
+/api/recovery-code  (authed)  body: {currentPassword}
+                              → 200 {recoveryCode} (rotated, password unchanged);
+                              401 {error: 'invalid current password'}
 /api/tokens         (authed)  GET: {tokens: [{id, label, createdAt, lastUsedAt, current}]}
                               DELETE /api/tokens/:id: revokes one device token;
                               404 when the id is unknown or belongs to another user
@@ -213,6 +234,23 @@ the last good state, rejects edits, and offers the repair to the user
     whole (e.g. repaired elsewhere) can instead adopt it wholesale
     (adoptServerHistory): the local copy is replaced with the server's as-is —
     nothing is dropped, pending local ops are kept
+
+--
+Backup and restore (client-side, no dedicated endpoints):
+
+a workspace is fully described by its confirmed history, so a frontend can
+export it as a JSON file (`{format: 'worktree-history', version: 1, entries}`)
+and import it into an empty workspace. Import validates the whole history with
+`WorktreeState.fromOps` first, then replaces it: a server user rewrites with
+`base: null` (a 409 means another client advanced meanwhile, so nothing is
+clobbered), the `local` user sets its confirmed chain directly. It is a
+whole-history replacement, never a merge — a non-empty confirmed history or
+pending queue rejects the import. The web client exposes both under
+Settings -> Data and can download a conflicting local branch before resolving.
+
+the server accepts JSON bodies up to 8 MB, so a whole-history rewrite/repair is
+not rejected by the transport; a larger body answers
+`413 {error: 'history too large'}` instead of the generic 500.
 
 --
 

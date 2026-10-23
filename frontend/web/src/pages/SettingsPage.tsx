@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
-import { normalizeCapturePath } from '@worktree/core';
-import type { Node } from '@worktree/core';
+import { WorktreeState, normalizeCapturePath } from '@worktree/core';
+import type { Node, TokensResponse } from '@worktree/core';
 import type { WorktreeClient } from '@worktree/client';
 import { verifyProvider } from '@worktree/agent';
 import { ExpandSelect } from '../components/ExpandSelect';
@@ -10,7 +10,15 @@ import { CheckIcon } from '../components/icons';
 import { useToast } from '../components/Toast';
 import { LOCAL_USER, SERVER_PRESETS, listLoggedInUsers, loadToken } from '../config';
 import type { AppConfig, FilterDisplayMode } from '../config';
-import { authRequest } from '../auth';
+import { AuthError, authRequest, listTokensRequest, revokeTokenRequest } from '../auth';
+import {
+  buildHistoryBackup,
+  downloadHistoryBackup,
+  historyBackupFilename,
+  parseHistoryBackup,
+  readFileText,
+} from '../data-transfer';
+import type { HistoryBackup } from '../data-transfer';
 import { LANGS, useI18n } from '../i18n';
 import { disablePush, enablePush, getPushStatus } from '../push';
 import type { PushStatus } from '../push';
@@ -33,6 +41,21 @@ function serverHost(value: string): string {
   } catch {
     return value;
   }
+}
+
+/** One device token from `GET /api/tokens`. */
+type DeviceToken = TokensResponse['tokens'][number];
+
+/** The message a failed request carries; a thrown value that is not an Error keeps its text form. */
+function failureMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** An ISO timestamp for display; an unparseable value is shown as-is instead of "Invalid Date". */
+function formatDeviceTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString();
 }
 
 export function SettingsPage(props: {
@@ -84,7 +107,12 @@ export function SettingsPage(props: {
   };
 
   const clearCache = (): void => {
-    if (!window.confirm(t('settings.clearConfirm', { user: config.user, server: config.serverUrl }))) {
+    const pending = client.getPendingCount();
+    const message =
+      pending > 0
+        ? t('settings.clearConfirmUnsynced', { user: config.user, n: pending })
+        : t('settings.clearConfirm', { user: config.user, server: config.serverUrl });
+    if (!window.confirm(message)) {
       return;
     }
     onClearCache();
@@ -146,6 +174,125 @@ export function SettingsPage(props: {
 
   const storedToken = config.user === LOCAL_USER ? null : loadToken(config.serverUrl, config.user);
 
+  const [devices, setDevices] = useState<DeviceToken[] | null>(null);
+  const [devicesError, setDevicesError] = useState<string | null>(null);
+  const [revokingId, setRevokingId] = useState<number | null>(null);
+
+  const loadDevices = useCallback(async (): Promise<void> => {
+    const stored = loadToken(config.serverUrl, config.user);
+    if (stored === null) {
+      setDevices(null);
+      setDevicesError(null);
+      return;
+    }
+    try {
+      const result = await listTokensRequest(config.serverUrl, stored.token);
+      setDevices(result.tokens);
+      setDevicesError(null);
+    } catch (e) {
+      setDevicesError(failureMessage(e));
+    }
+  }, [config.serverUrl, config.user]);
+
+  useEffect(() => {
+    void loadDevices();
+  }, [loadDevices]);
+
+  const revokeDevice = async (id: number): Promise<void> => {
+    const stored = loadToken(config.serverUrl, config.user);
+    if (stored === null) return;
+    if (!window.confirm(t('settings.deviceRevokeConfirm'))) return;
+    setRevokingId(id);
+    try {
+      await revokeTokenRequest(config.serverUrl, stored.token, id);
+      toast.success(t('settings.deviceRevoked'));
+      await loadDevices();
+    } catch (e) {
+      setDevicesError(failureMessage(e));
+    } finally {
+      setRevokingId(null);
+    }
+  };
+
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  /** The recovery code the server just issued; it can never be fetched again. */
+  const [oneTimeCode, setOneTimeCode] = useState<{ code: string; kind: 'password' | 'recovery' } | null>(null);
+  const [codeCopied, setCodeCopied] = useState(false);
+
+  const changePassword = async (): Promise<void> => {
+    const stored = loadToken(config.serverUrl, config.user);
+    if (stored === null) return;
+    setPasswordBusy(true);
+    setPasswordError(null);
+    setOneTimeCode(null);
+    setCodeCopied(false);
+    try {
+      const result = await authRequest(
+        config.serverUrl,
+        '/api/password',
+        { currentPassword, newPassword },
+        stored.token,
+      );
+      setOneTimeCode({ code: result.recoveryCode, kind: 'password' });
+      setCurrentPassword('');
+      setNewPassword('');
+      // The server signs out the other devices, so the list on screen is stale.
+      await loadDevices();
+    } catch (e) {
+      setPasswordError(
+        e instanceof AuthError && (e.status === 404 || e.status === 405)
+          ? t('settings.featureUnavailable')
+          : t('settings.passwordFailed', { message: failureMessage(e) }),
+      );
+    } finally {
+      setPasswordBusy(false);
+    }
+  };
+
+  const createRecoveryCode = async (): Promise<void> => {
+    const stored = loadToken(config.serverUrl, config.user);
+    if (stored === null) return;
+    setRecoveryBusy(true);
+    setRecoveryError(null);
+    setOneTimeCode(null);
+    setCodeCopied(false);
+    try {
+      const result = await authRequest(
+        config.serverUrl,
+        '/api/recovery-code',
+        { currentPassword },
+        stored.token,
+      );
+      setOneTimeCode({ code: result.recoveryCode, kind: 'recovery' });
+    } catch (e) {
+      setRecoveryError(
+        e instanceof AuthError && (e.status === 404 || e.status === 405)
+          ? t('settings.featureUnavailable')
+          : t('settings.recoveryFailed', { message: failureMessage(e) }),
+      );
+    } finally {
+      setRecoveryBusy(false);
+    }
+  };
+
+  const copyRecoveryCode = async (code: string): Promise<void> => {
+    const clipboard: Clipboard | undefined = navigator.clipboard;
+    if (clipboard === undefined) return;
+    try {
+      await clipboard.writeText(code);
+      setCodeCopied(true);
+    } catch {
+      // The code sits in a select-all input, so a failed write still leaves it
+      // copyable by hand; the button keeps its idle label.
+      setCodeCopied(false);
+    }
+  };
+
   const [pushStatus, setPushStatus] = useState<PushStatus>('checking');
   const [pushError, setPushError] = useState<string | null>(null);
   const [pushBusy, setPushBusy] = useState(false);
@@ -205,7 +352,57 @@ export function SettingsPage(props: {
     onLogout();
   };
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+
+  const exportBackup = (): void => {
+    const now = Date.now();
+    downloadHistoryBackup(
+      historyBackupFilename(config.user, now),
+      buildHistoryBackup(config.user, config.serverUrl, client.getConfirmed(), now),
+    );
+    toast.success(t('settings.exportDone'));
+  };
+
+  /** Parse the picked file into a backup, or null when it is not one. */
+  const readBackup = async (file: File): Promise<HistoryBackup | null> => {
+    try {
+      return parseHistoryBackup(await readFileText(file));
+    } catch {
+      return null;
+    }
+  };
+
+  const importBackup = async (file: File): Promise<void> => {
+    setImporting(true);
+    const backup = await readBackup(file);
+    if (backup === null) {
+      setImporting(false);
+      toast.error(t('settings.invalidFile'));
+      return;
+    }
+    try {
+      // Prove the whole history replays before touching the workspace: a
+      // backup whose ops no longer validate must not replace anything.
+      WorktreeState.fromOps(backup.entries.map((entry) => entry.op));
+      if (client.getConfirmed().length > 0 || client.getPendingCount() > 0) {
+        toast.error(t('settings.importEmptyOnly'));
+        return;
+      }
+      if (!window.confirm(t('settings.importConfirm', { n: backup.entries.length }))) {
+        return;
+      }
+      await client.importHistory(backup.entries);
+      toast.success(t('settings.importDone', { n: backup.entries.length }));
+    } catch (e) {
+      toast.error(t('settings.importFailed', { message: e instanceof Error ? e.message : String(e) }));
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const nodeCount = flattenTree(tree).length - 1;
+  const pendingCount = client.getPendingCount();
 
   const userOptions = [
     { value: LOCAL_USER, label: t('settings.localUser') },
@@ -300,6 +497,146 @@ export function SettingsPage(props: {
                     {pushError}
                   </p>
                 )}
+              </section>
+
+              <section className="card" data-testid="settings-security">
+                <div className="section-head">
+                  <h2 className="section-title">{t('settings.security')}</h2>
+                </div>
+
+                <div className="stack">
+                  <h3 className="setting__label">{t('settings.devices')}</h3>
+                  <p className="setting__hint">{t('settings.devicesHint')}</p>
+                  {devices === null && devicesError === null && <span className="muted">…</span>}
+                  {devices !== null && (
+                    <ul className="stack" data-testid="settings-devices">
+                      {devices.map((device) => (
+                        <li key={device.id} className="setting" data-testid={`settings-device-${device.id}`}>
+                          <div className="device-row">
+                            <div className="cluster">
+                              <span className="setting__label">
+                                {device.label ?? t('settings.deviceUnnamed')}
+                              </span>
+                              {device.current && (
+                                <span className="pill pill--brand">{t('settings.deviceCurrent')}</span>
+                              )}
+                            </div>
+                            <span className="setting__hint">
+                              {t('settings.deviceCreated')}{' '}
+                              <span className="mono">{formatDeviceTime(device.createdAt)}</span>
+                              {' · '}
+                              {t('settings.deviceLastUsed')}{' '}
+                              <span className="mono">
+                                {device.lastUsedAt === null
+                                  ? t('settings.deviceNever')
+                                  : formatDeviceTime(device.lastUsedAt)}
+                              </span>
+                            </span>
+                          </div>
+                          {!device.current && (
+                            <button
+                              type="button"
+                              onClick={() => void revokeDevice(device.id)}
+                              disabled={revokingId !== null}
+                              data-testid={`settings-device-revoke-${device.id}`}
+                              className="btn btn--danger btn--sm"
+                            >
+                              {t('settings.deviceRevoke')}
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {devicesError !== null && (
+                    <p className="form__error" data-testid="settings-devices-error">
+                      {t('settings.devicesFailed', { message: devicesError })}
+                    </p>
+                  )}
+                </div>
+
+                <div className="stack">
+                  <label className="field">
+                    <span className="field__label">{t('settings.currentPassword')}</span>
+                    <input
+                      type="password"
+                      autoComplete="current-password"
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      data-testid="settings-current-password"
+                      className="input"
+                    />
+                  </label>
+                  <label className="field">
+                    <span className="field__label">{t('settings.newPasswordOptional')}</span>
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      data-testid="settings-new-password"
+                      className="input"
+                    />
+                  </label>
+                  <div className="settings__actions">
+                    <button
+                      type="button"
+                      onClick={() => void changePassword()}
+                      disabled={passwordBusy || currentPassword === '' || newPassword.length < 8}
+                      data-testid="settings-change-password"
+                      className="btn btn--primary btn--sm"
+                    >
+                      {t('settings.changePassword')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void createRecoveryCode()}
+                      disabled={recoveryBusy || currentPassword === ''}
+                      data-testid="settings-create-recovery"
+                      className="btn btn--sm"
+                    >
+                      {t('settings.createRecovery')}
+                    </button>
+                  </div>
+                  {passwordError !== null && (
+                    <p className="form__error" data-testid="settings-password-error">
+                      {passwordError}
+                    </p>
+                  )}
+                  {recoveryError !== null && (
+                    <p className="form__error" data-testid="settings-recovery-error">
+                      {recoveryError}
+                    </p>
+                  )}
+                  {oneTimeCode !== null && (
+                    <div className="notice notice--success" role="status" data-testid="settings-one-time-code">
+                      <p className="notice__title">
+                        {oneTimeCode.kind === 'password'
+                          ? t('settings.passwordChanged')
+                          : t('settings.recoveryCreated')}
+                      </p>
+                      <p className="setting__hint">{t('settings.recoveryHint')}</p>
+                      <div className="setting">
+                        <input
+                          readOnly
+                          value={oneTimeCode.code}
+                          aria-label={t('settings.recoveryCreated')}
+                          data-testid="settings-recovery-code"
+                          className="input input--mono flex-1"
+                          onFocus={(e) => e.currentTarget.select()}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void copyRecoveryCode(oneTimeCode.code)}
+                          data-testid="settings-recovery-copy"
+                          className="btn btn--sm"
+                        >
+                          {codeCopied ? t('settings.recoveryCopied') : t('settings.recoveryCopy')}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </section>
             </>
           )}
@@ -614,13 +951,46 @@ export function SettingsPage(props: {
             </div>
             <div className="setting">
               <span className="setting__label">{t('stats.nodesHeading')}</span>
-              <span className="setting__value">{nodeCount}</span>
+              <span className="setting__value mono">{nodeCount}</span>
             </div>
             <div className="setting">
               <span className="setting__label">{t('settings.pendingCount')}</span>
-              <span className="setting__value">{client.getPendingCount()}</span>
+              <span className="setting__value mono">{pendingCount}</span>
             </div>
+            <p className="setting__hint">{t('settings.exportHint')}</p>
+            <p className="setting__hint">{t('settings.importHint')}</p>
             <div className="settings__actions">
+              <button
+                type="button"
+                onClick={exportBackup}
+                data-testid="settings-export-backup"
+                className="btn btn--sm"
+              >
+                {t('settings.export')}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="application/json,.json"
+                aria-label={t('settings.import')}
+                data-testid="settings-import-input"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  // Reset so picking the same file again still fires onChange.
+                  e.target.value = '';
+                  if (file !== undefined) void importBackup(file);
+                }}
+                className="visually-hidden"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={importing}
+                data-testid="settings-import-backup"
+                className="btn btn--sm"
+              >
+                {t('settings.import')}
+              </button>
               <button
                 type="button"
                 onClick={clearCache}
