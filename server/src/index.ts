@@ -28,8 +28,8 @@ async function main(): Promise<void> {
     if (state === 'offline') hub.closeUser(user);
   });
 
-  server.listen(config.port, () => {
-    console.log(`worktree server listening on http://localhost:${config.port}`);
+  server.listen(config.port, config.host, () => {
+    console.log(`worktree server listening on http://${config.host}:${config.port}`);
   });
 
   let shuttingDown = false;

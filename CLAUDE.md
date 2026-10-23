@@ -28,7 +28,7 @@ Single test / watch (from any workspace dir, e.g. `core/`):
 
 Prisma (server): `DATABASE_URL=file:./dev.db npm run prisma:migrate` (or `prisma:push`) after schema changes. DB is gitignored.
 
-Server config is env-driven (`server/src/config.ts`): `PORT`, `DATABASE_URL`, `REGISTRATION_MODE` (only `open` today; `invite` reserved), `REMINDER_SWEEP_MS`, VAPID keys (`VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` — push is disabled until set).
+Server config is env-driven (`server/src/config.ts`): `PORT`, `HOST` (bind interface; defaults to all interfaces, use `127.0.0.1` behind a reverse proxy), `DATABASE_URL`, `REGISTRATION_MODE` (only `open` today; `invite` reserved), `REMINDER_SWEEP_MS`, VAPID keys (`VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` — push is disabled until set).
 
 ## Architecture
 
